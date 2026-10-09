@@ -150,13 +150,14 @@ func generate_flat_world() -> void:
 
 
 func _dress_meadow() -> void:
-	## Paths, clustered flower beds, sand patch, grass-on-dirt knolls, starter pad.
-	## No random speckles and no grey cobble rim walls.
+	## Paths, flower beds, pond, terraces, knolls, fence line, starter pad.
 	var path_id := BlockDB.get_id("path_stone")
 	var sand_id := BlockDB.get_id("sand")
 	var flower_id := BlockDB.get_id("flower_block")
 	var dirt_id := BlockDB.get_id("dirt")
 	var planks_id := BlockDB.get_id("planks")
+	var wood_id := BlockDB.get_id("wood")
+	var glass_id := BlockDB.get_id("glass")
 	var wool_y := BlockDB.get_id("wool_yellow")
 	var wool_p := BlockDB.get_id("wool_pink")
 	var grass_id := BlockDB.get_id("grass")
@@ -165,28 +166,43 @@ func _dress_meadow() -> void:
 		var x := 32 + int(round(t * 0.55))
 		var z := 32 - t
 		_stamp_disk(x, z, 1, path_id)
-	# Side spur to flower nook
 	for t in 8:
 		_stamp_disk(24 + t, 28 - int(t * 0.3), 1, path_id)
 	# Golden sand play patch near spawn
 	_stamp_disk(28, 36, 3, sand_id)
-	# Clustered flower beds only (intentional, not noise)
+	# Clustered flower beds (midground interest)
 	_stamp_disk(22, 24, 2, flower_id)
 	_stamp_disk(40, 22, 2, flower_id)
 	_stamp_disk(18, 40, 1, flower_id)
-	# Small dirt garden beds
+	_stamp_disk(48, 42, 2, flower_id)
+	_stamp_disk(14, 50, 2, flower_id)
+	_stamp_disk(52, 28, 1, flower_id)
+	# Dirt garden beds
 	_stamp_disk(24, 30, 1, dirt_id)
 	_stamp_disk(38, 28, 1, dirt_id)
-	# Soft world-edge mounds only (keep garden / spawn views clear of grey cliffs)
-	for i in 6:
-		var bx := 10 + i * 8
-		var bz := 10 + i * 8
-		for edge in [Vector2i(bx, 6), Vector2i(bx, 57), Vector2i(6, bz), Vector2i(57, bz)]:
-			_grass_dirt_mound(edge.x, edge.y, 1)
-	# Small grass-on-dirt knolls away from the animal pen
+	# Small pond (sand shore + glass water) — mid/far interest
+	_stamp_disk(26, 50, 3, sand_id)
+	_stamp_disk(26, 50, 2, glass_id)
+	set_block(26, GROUND_Y, 50, glass_id, false)
+	# Layered edge terraces (grass on dirt) — no grey walls
+	for i in 8:
+		var bx := 8 + i * 6
+		var bz := 8 + i * 6
+		for edge in [Vector2i(bx, 5), Vector2i(bx, 58), Vector2i(5, bz), Vector2i(58, bz)]:
+			_grass_dirt_mound(edge.x, edge.y, 1 if i % 2 == 0 else 2)
+	# Interior knolls / terraces for midground silhouette
 	_build_knoll(16, 18, 2, 1)
 	_build_knoll(50, 48, 2, 1)
 	_build_knoll(22, 48, 2, 1)
+	_build_knoll(12, 36, 2, 1)
+	_build_knoll(54, 36, 2, 1)
+	_build_knoll(40, 52, 2, 1)
+	# Low fence line of wood posts (south-west meadow)
+	for i in 7:
+		var fx := 12 + i * 2
+		set_block(fx, GROUND_Y + 1, 54, wood_id, false)
+		if i % 2 == 0:
+			set_block(fx, GROUND_Y + 2, 54, wood_id, false)
 	# Cozy starter build pad
 	for x in range(34, 40):
 		for z in range(34, 40):

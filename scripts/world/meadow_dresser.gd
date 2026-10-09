@@ -1,16 +1,18 @@
 extends Node3D
 class_name MeadowDresser
-## Places trees, rocks, flowers, and clouds into a charming meadow composition.
+## Charms the meadow: key Kenney props + MultiMesh fillers for wide-view depth.
 
 func dress(root: Node3D) -> void:
 	_clear_old(root)
 	var props := Node3D.new()
 	props.name = "MeadowProps"
 	root.add_child(props)
-	_place_trees(props)
+	_place_hero_trees(props)
 	_place_rocks(props)
-	_place_flowers(props)
+	_place_flower_clusters(props)
+	_place_bushes(props)
 	_place_pathside(props)
+	_place_multimesh_fill(props)
 	_place_clouds(root)
 
 
@@ -41,11 +43,10 @@ func _paint_prop(node: Node, fn: String) -> void:
 				sm.metallic = 0.0
 				sm.roughness = 0.92
 				if fn.find("tree") >= 0:
-					# Surface 0 often foliage; others trunk — keep readable even if swapped
 					if si == 0:
-						sm.albedo_color = Color(0.28, 0.72, 0.38)
+						sm.albedo_color = Color(0.32, 0.76, 0.40)
 					else:
-						sm.albedo_color = Color(0.55, 0.32, 0.16)
+						sm.albedo_color = Color(0.62, 0.38, 0.18)
 				elif fn.find("flower_yellow") >= 0:
 					sm.albedo_color = Color(0.98, 0.82, 0.22)
 				elif fn.find("flower_purple") >= 0:
@@ -55,9 +56,9 @@ func _paint_prop(node: Node, fn: String) -> void:
 				elif fn.find("mushroom") >= 0:
 					sm.albedo_color = Color(0.88, 0.22, 0.28) if si == 0 else Color(0.95, 0.90, 0.78)
 				elif fn.find("rock") >= 0:
-					sm.albedo_color = Color(0.62, 0.56, 0.48)  # warm stone, not cold grey
+					sm.albedo_color = Color(0.66, 0.58, 0.48)
 				elif fn.find("grass") >= 0 or fn.find("plant") >= 0 or fn.find("bush") >= 0 or fn.find("patch") >= 0:
-					sm.albedo_color = Color(0.30, 0.74, 0.36)
+					sm.albedo_color = Color(0.34, 0.76, 0.38)
 				else:
 					var mat: Material = mi.get_active_material(si)
 					if mat == null:
@@ -72,25 +73,25 @@ func _paint_prop(node: Node, fn: String) -> void:
 		_paint_prop(c, fn)
 
 
-func _place_trees(props: Node3D) -> void:
+func _place_hero_trees(props: Node3D) -> void:
+	## Fewer unique Kenney trees as readable anchors (midground).
 	var gy := float(VoxelWorld.GROUND_Y + 1)
 	var trees := [
-		# Grove west of spawn
 		["res://assets/models/nature/tree_oak.glb", Vector3(18, gy, 26), 1.7, 10.0],
 		["res://assets/models/nature/tree_oak.glb", Vector3(20, gy, 22), 1.4, 40.0],
 		["res://assets/models/nature/tree_pineDefaultA.glb", Vector3(16, gy, 30), 1.55, 0.0],
 		["res://assets/models/nature/tree_detailed.glb", Vector3(14, gy, 34), 1.3, 20.0],
-		# Near build pad
 		["res://assets/models/nature/tree_pineDefaultA.glb", Vector3(42, gy, 30), 1.35, 25.0],
 		["res://assets/models/nature/tree_oak.glb", Vector3(30, gy, 42), 1.5, 55.0],
 		["res://assets/models/props/tree.glb", Vector3(44, gy, 42), 1.9, 15.0],
-		# Garden / east
 		["res://assets/models/nature/tree_detailed.glb", Vector3(46, gy, 26), 1.4, 55.0],
 		["res://assets/models/props/tree-high.glb", Vector3(50, gy, 34), 1.75, 70.0],
 		["res://assets/models/nature/tree_pineDefaultA.glb", Vector3(52, gy, 18), 1.45, 5.0],
-		# South knoll
 		["res://assets/models/nature/tree_oak.glb", Vector3(18, gy, 46), 1.45, 80.0],
 		["res://assets/models/nature/tree_pineDefaultA.glb", Vector3(24, gy, 48), 1.3, 30.0],
+		["res://assets/models/nature/tree_oak.glb", Vector3(10, gy, 28), 1.5, 60.0],
+		["res://assets/models/nature/tree_pineDefaultA.glb", Vector3(56, gy, 44), 1.4, 15.0],
+		["res://assets/models/props/tree.glb", Vector3(8, gy, 48), 1.8, 90.0],
 	]
 	for t in trees:
 		_spawn(t[0], props, t[1], t[2], t[3])
@@ -98,62 +99,211 @@ func _place_trees(props: Node3D) -> void:
 
 func _place_rocks(props: Node3D) -> void:
 	var gy := float(VoxelWorld.GROUND_Y + 1)
-	# Few warm stones only — avoid grey slab walls in the play view
 	var rocks := [
 		["res://assets/models/nature/rock_smallA.glb", Vector3(30, gy, 20), 0.9, 0.0],
 		["res://assets/models/nature/rock_smallA.glb", Vector3(31, gy, 18), 0.8, 20.0],
 		["res://assets/models/nature/rock_smallA.glb", Vector3(22, gy, 42), 0.85, 10.0],
+		["res://assets/models/nature/rock_smallA.glb", Vector3(48, gy, 46), 0.9, 40.0],
+		["res://assets/models/nature/rock_smallA.glb", Vector3(14, gy, 52), 0.85, 70.0],
+		["res://assets/models/nature/rock_tallA.glb", Vector3(54, gy, 22), 0.7, 25.0],
 	]
 	for r in rocks:
 		_spawn(r[0], props, r[1], r[2], r[3])
 
 
-func _place_flowers(props: Node3D) -> void:
+func _place_flower_clusters(props: Node3D) -> void:
 	var gy := float(VoxelWorld.GROUND_Y + 1)
-	var flowers := [
-		["res://assets/models/nature/flower_redA.glb", Vector3(23, gy, 27), 1.35],
-		["res://assets/models/nature/flower_yellowA.glb", Vector3(25, gy, 29), 1.35],
-		["res://assets/models/nature/flower_purpleA.glb", Vector3(21, gy, 29), 1.35],
-		["res://assets/models/nature/flower_redA.glb", Vector3(39, gy, 23), 1.25],
-		["res://assets/models/nature/flower_yellowA.glb", Vector3(41, gy, 21), 1.25],
-		["res://assets/models/nature/flower_purpleA.glb", Vector3(37, gy, 24), 1.2],
-		["res://assets/models/nature/flower_redA.glb", Vector3(19, gy, 40), 1.3],
-		["res://assets/models/nature/flower_yellowA.glb", Vector3(17, gy, 42), 1.25],
-		["res://assets/models/nature/grass_large.glb", Vector3(27, gy, 33), 1.15],
-		["res://assets/models/nature/grass.glb", Vector3(29, gy, 31), 1.25],
-		["res://assets/models/nature/grass_large.glb", Vector3(33, gy, 28), 1.1],
-		["res://assets/models/nature/grass.glb", Vector3(35, gy, 44), 1.2],
-		["res://assets/models/nature/mushroom_red.glb", Vector3(19, gy, 34), 1.05],
-		["res://assets/models/nature/mushroom_red.glb", Vector3(43, gy, 36), 1.0],
-		["res://assets/models/nature/plant_bush.glb", Vector3(36, gy, 20), 1.05],
-		["res://assets/models/nature/plant_bushDetailed.glb", Vector3(48, gy, 30), 1.05],
-		["res://assets/models/nature/plant_bush.glb", Vector3(26, gy, 44), 1.0],
-		["res://assets/models/nature/plant_bushDetailed.glb", Vector3(40, gy, 46), 1.0],
+	var centers := [
+		Vector3(23, gy, 27), Vector3(40, gy, 22), Vector3(18, gy, 40),
+		Vector3(48, gy, 42), Vector3(14, gy, 50), Vector3(36, gy, 48),
+		Vector3(10, gy, 22), Vector3(54, gy, 40),
 	]
-	for i in flowers.size():
-		var f = flowers[i]
-		# Larger scale so flowers read as props, not speckles
-		_spawn(f[0], props, f[1], float(f[2]) * 1.35, float(i * 17))
+	var kinds := [
+		"res://assets/models/nature/flower_redA.glb",
+		"res://assets/models/nature/flower_yellowA.glb",
+		"res://assets/models/nature/flower_purpleA.glb",
+	]
+	for ci in centers.size():
+		var c: Vector3 = centers[ci]
+		for j in 4:
+			var ang: float = float(j) * TAU / 4.0 + float(ci) * 0.4
+			_spawn(kinds[(ci + j) % kinds.size()], props, c + Vector3(cos(ang) * 0.8, 0, sin(ang) * 0.8), 1.8, rad_to_deg(ang))
+
+
+func _place_bushes(props: Node3D) -> void:
+	var gy := float(VoxelWorld.GROUND_Y + 1)
+	var bushes := [
+		["res://assets/models/nature/plant_bush.glb", Vector3(36, gy, 20), 1.1],
+		["res://assets/models/nature/plant_bushDetailed.glb", Vector3(48, gy, 30), 1.1],
+		["res://assets/models/nature/plant_bush.glb", Vector3(26, gy, 44), 1.05],
+		["res://assets/models/nature/plant_bushDetailed.glb", Vector3(40, gy, 46), 1.05],
+		["res://assets/models/nature/plant_bush.glb", Vector3(12, gy, 40), 1.1],
+		["res://assets/models/nature/plant_bushDetailed.glb", Vector3(50, gy, 50), 1.1],
+		["res://assets/models/nature/mushroom_red.glb", Vector3(19, gy, 34), 1.15],
+		["res://assets/models/nature/mushroom_red.glb", Vector3(43, gy, 36), 1.1],
+	]
+	for i in bushes.size():
+		var b = bushes[i]
+		_spawn(b[0], props, b[1], b[2], float(i * 23))
 
 
 func _place_pathside(props: Node3D) -> void:
-	## Clustered flower/tuft groups along the path — intentional, not noise.
 	var gy := float(VoxelWorld.GROUND_Y + 1)
 	var clusters := [
 		Vector3(30, gy, 30), Vector3(34, gy, 26), Vector3(38, gy, 22),
 		Vector3(26, gy, 28), Vector3(42, gy, 18),
 	]
 	var kinds := [
-		"res://assets/models/nature/flower_redA.glb",
 		"res://assets/models/nature/flower_yellowA.glb",
-		"res://assets/models/nature/flower_purpleA.glb",
 		"res://assets/models/nature/grass_large.glb",
+		"res://assets/models/nature/flower_redA.glb",
 	]
 	for ci in clusters.size():
 		var c: Vector3 = clusters[ci]
 		for j in 3:
-			var ang := float(j) * TAU / 3.0 + float(ci)
+			var ang: float = float(j) * TAU / 3.0 + float(ci)
 			_spawn(kinds[(ci + j) % kinds.size()], props, c + Vector3(cos(ang) * 0.55, 0, sin(ang) * 0.55), 1.7, rad_to_deg(ang))
+
+
+func _place_multimesh_fill(props: Node3D) -> void:
+	## Batched silhouette trees + flower dots for far/mid fill (tablet-friendly).
+	var gy := float(VoxelWorld.GROUND_Y + 1)
+	_add_mm_trees(props, gy)
+	_add_mm_flowers(props, gy)
+	_add_mm_bushes(props, gy)
+
+
+func _mm_material(color: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = color
+	m.roughness = 0.95
+	m.metallic = 0.0
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	return m
+
+
+func _add_mm_trees(parent: Node3D, gy: float) -> void:
+	# Canopies
+	var canopy := SphereMesh.new()
+	canopy.radius = 1.1
+	canopy.height = 1.6
+	canopy.radial_segments = 8
+	canopy.rings = 4
+	var trunk := CylinderMesh.new()
+	trunk.top_radius = 0.18
+	trunk.bottom_radius = 0.22
+	trunk.height = 1.6
+	trunk.radial_segments = 6
+	var positions: Array[Vector3] = []
+	# Edge hubs + interior midground groves (skip build pad)
+	var hubs: Array[Vector2] = [
+		Vector2(8, 16), Vector2(56, 16), Vector2(8, 56), Vector2(56, 56),
+		Vector2(32, 8), Vector2(32, 58), Vector2(6, 36), Vector2(58, 36),
+		Vector2(20, 56), Vector2(44, 56), Vector2(12, 12), Vector2(52, 52),
+		Vector2(16, 32), Vector2(48, 38), Vector2(24, 20), Vector2(40, 48),
+		Vector2(12, 48), Vector2(28, 54), Vector2(50, 24), Vector2(20, 40),
+		Vector2(26, 36), Vector2(44, 32), Vector2(18, 44), Vector2(36, 22),
+		Vector2(30, 16), Vector2(46, 46), Vector2(14, 26), Vector2(38, 54),
+	]
+	for h in hubs:
+		for k in 4:
+			var ang: float = float(k) * TAU / 4.0 + h.x * 0.1
+			var r: float = 1.4 + float(k) * 0.55
+			var px: float = h.x + cos(ang) * r
+			var pz: float = h.y + sin(ang) * r
+			if px > 32.0 and px < 42.0 and pz > 32.0 and pz < 42.0:
+				continue
+			positions.append(Vector3(px, gy, pz))
+	var mm_c := MultiMeshInstance3D.new()
+	mm_c.name = "MM_TreeCanopies"
+	var mm1 := MultiMesh.new()
+	mm1.transform_format = MultiMesh.TRANSFORM_3D
+	mm1.mesh = canopy
+	mm1.instance_count = positions.size()
+	for i in positions.size():
+		var s := 0.85 + float(i % 4) * 0.12
+		var basis := Basis.from_euler(Vector3(0.0, float(i) * 0.7, 0.0)).scaled(Vector3(s, s, s))
+		var xf := Transform3D(basis, positions[i] + Vector3(0.0, 2.1, 0.0))
+		mm1.set_instance_transform(i, xf)
+	mm_c.multimesh = mm1
+	mm_c.material_override = _mm_material(Color(0.28, 0.72, 0.36))
+	parent.add_child(mm_c)
+	var mm_t := MultiMeshInstance3D.new()
+	mm_t.name = "MM_TreeTrunks"
+	var mm2 := MultiMesh.new()
+	mm2.transform_format = MultiMesh.TRANSFORM_3D
+	mm2.mesh = trunk
+	mm2.instance_count = positions.size()
+	for i in positions.size():
+		var xf := Transform3D(Basis.IDENTITY, positions[i] + Vector3(0.0, 0.8, 0.0))
+		mm2.set_instance_transform(i, xf)
+	mm_t.multimesh = mm2
+	mm_t.material_override = _mm_material(Color(0.58, 0.36, 0.18))
+	parent.add_child(mm_t)
+
+
+func _add_mm_flowers(parent: Node3D, gy: float) -> void:
+	var bloom := SphereMesh.new()
+	bloom.radius = 0.22
+	bloom.height = 0.35
+	bloom.radial_segments = 6
+	bloom.rings = 3
+	var colors := [
+		Color(0.95, 0.35, 0.55),
+		Color(0.98, 0.82, 0.25),
+		Color(0.70, 0.42, 0.90),
+	]
+	var patches: Array[Vector2] = [
+		Vector2(22, 26), Vector2(40, 24), Vector2(16, 42), Vector2(48, 44),
+		Vector2(28, 52), Vector2(50, 32), Vector2(12, 30), Vector2(36, 16),
+		Vector2(24, 12), Vector2(44, 50),
+	]
+	for ci in colors.size():
+		var mm_i := MultiMeshInstance3D.new()
+		mm_i.name = "MM_Flowers_%d" % ci
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = bloom
+		mm.instance_count = patches.size() * 5
+		var idx := 0
+		for p in patches:
+			for k in 5:
+				var ang: float = float(k) * TAU / 5.0 + float(ci)
+				var r: float = 0.5 + float(k) * 0.25
+				var xf := Transform3D.IDENTITY
+				xf.origin = Vector3(p.x + cos(ang) * r, gy + 0.25, p.y + sin(ang) * r)
+				mm.set_instance_transform(idx, xf)
+				idx += 1
+		mm_i.multimesh = mm
+		mm_i.material_override = _mm_material(colors[ci])
+		parent.add_child(mm_i)
+
+
+func _add_mm_bushes(parent: Node3D, gy: float) -> void:
+	var bush := SphereMesh.new()
+	bush.radius = 0.7
+	bush.height = 1.0
+	bush.radial_segments = 8
+	bush.rings = 4
+	var spots: Array[Vector2] = [
+		Vector2(15, 20), Vector2(25, 16), Vector2(45, 18), Vector2(55, 30),
+		Vector2(50, 50), Vector2(30, 55), Vector2(18, 54), Vector2(10, 44),
+		Vector2(42, 38), Vector2(8, 24), Vector2(58, 48), Vector2(34, 10),
+	]
+	var mm_i := MultiMeshInstance3D.new()
+	mm_i.name = "MM_Bushes"
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = bush
+	mm.instance_count = spots.size()
+	for i in spots.size():
+		var s := 0.9 + float(i % 3) * 0.15
+		var basis := Basis.IDENTITY.scaled(Vector3(s, s * 0.85, s))
+		var xf := Transform3D(basis, Vector3(spots[i].x, gy + 0.35, spots[i].y))
+		mm.set_instance_transform(i, xf)
+	mm_i.multimesh = mm
+	mm_i.material_override = _mm_material(Color(0.28, 0.70, 0.34))
+	parent.add_child(mm_i)
 
 
 func _place_clouds(root: Node3D) -> void:
@@ -173,7 +323,6 @@ func _place_clouds(root: Node3D) -> void:
 			sphere.rings = 6
 			mi.mesh = sphere
 			var mat := StandardMaterial3D.new()
-			# Opaque soft white — alpha clouds punch black holes on gl_compatibility
 			mat.albedo_color = Color(0.96, 0.97, 1.0, 1.0)
 			mat.roughness = 1.0
 			mat.metallic = 0.0

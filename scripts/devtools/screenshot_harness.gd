@@ -34,14 +34,13 @@ func _capture_all() -> void:
 	var world: VoxelWorld = main.get_node("VoxelWorld")
 	var showcase: Node3D = main.get_node("Showcase")
 
-	# 01 main meadow — mid overview showing path, sand, trees, knoll (not washed sky)
-	_aim(player, Vector3(29, 7.2, 44), 0.2, -0.22)
+	# 01 main meadow — shows path, sand, trees, flower clusters, distant fill
+	_aim(player, Vector3(28, 7.5, 46), 0.15, -0.24)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("01_main_building_area.png"))
 
-	# Compact playhouse: warm planks + wood trim + leaf roof (reads clearly with face shade)
-	var wood := BlockDB.get_id("wood")
+	# Compact playhouse: all light warm planks + leaf roof (friendly toy, not charcoal)
 	var planks := BlockDB.get_id("planks")
 	var leaves := BlockDB.get_id("leaves")
 	var glass := BlockDB.get_id("glass")
@@ -54,8 +53,8 @@ func _capture_all() -> void:
 			world.set_block(x, y, 35, planks, true)
 			world.set_block(x, y, 38, planks, true)
 		for z in range(35, 39):
-			world.set_block(35, y, z, wood, true)
-			world.set_block(38, y, z, wood, true)
+			world.set_block(35, y, z, planks, true)
+			world.set_block(38, y, z, planks, true)
 	for x in range(35, 39):
 		for z in range(35, 39):
 			world.set_block(x, VoxelWorld.GROUND_Y + 5, z, leaves, true)
@@ -118,6 +117,12 @@ func _capture_all() -> void:
 	_aim(player, base + Vector3(-2, 4.0, 16), 0.1, -0.35)
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("10_garden_wide.png"))
+
+	# New: wide meadow — FG sand/path, MG house+trees+flowers, BG pond/fence/knolls
+	_aim(player, Vector3(30, 8.8, 52), 0.05, -0.28)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await _shot(out_dir.path_join("11_wide_meadow.png"))
 
 	print("[SHOTS] saved to ", out_dir)
 
