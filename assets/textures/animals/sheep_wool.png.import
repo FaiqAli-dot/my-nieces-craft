@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b8dum7qld72pq"
-path="res://.godot/imported/colormap.png-b5aed20b09058b318ffab234d99d2130.ctex"
+uid="uid://ctepf2dauo7iq"
+path="res://.godot/imported/sheep_wool.png-4404bfdd61fa8ae56ea7f217b335d216.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/models/characters/Textures/colormap.png"
-dest_files=["res://.godot/imported/colormap.png-b5aed20b09058b318ffab234d99d2130.ctex"]
+source_file="res://assets/textures/animals/sheep_wool.png"
+dest_files=["res://.godot/imported/sheep_wool.png-4404bfdd61fa8ae56ea7f217b335d216.ctex"]
 
 [params]
 

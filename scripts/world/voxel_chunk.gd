@@ -106,12 +106,19 @@ func rebuild_mesh() -> void:
 					if neighbor != 0 and not BlockDB.is_transparent(neighbor):
 						continue
 					var uv_rect: Rect2 = BlockDB.get_face_uv(id, str(f["key"]))
+					# Inset half a texel so nearest filtering doesn't draw a bright seam grid
+					var inset_x := uv_rect.size.x * (0.5 / 64.0)
+					var inset_y := uv_rect.size.y * (0.5 / 64.0)
+					var u0 := uv_rect.position.x + inset_x
+					var u1 := uv_rect.position.x + uv_rect.size.x - inset_x
+					var v0 := uv_rect.position.y + inset_y
+					var v1 := uv_rect.position.y + uv_rect.size.y - inset_y
 					var verts: Array = f["d"]
 					var uvs := [
-						Vector2(uv_rect.position.x, uv_rect.position.y + uv_rect.size.y),
-						Vector2(uv_rect.position.x + uv_rect.size.x, uv_rect.position.y + uv_rect.size.y),
-						Vector2(uv_rect.position.x + uv_rect.size.x, uv_rect.position.y),
-						Vector2(uv_rect.position.x, uv_rect.position.y),
+						Vector2(u0, v1),
+						Vector2(u1, v1),
+						Vector2(u1, v0),
+						Vector2(u0, v0),
 					]
 					# two triangles: 0,1,2 and 0,2,3
 					var order := [0, 1, 2, 0, 2, 3]

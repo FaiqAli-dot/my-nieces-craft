@@ -1,12 +1,11 @@
-# Test Report — CozyBlocks Phase 1
+# Test Report — CozyBlocks Phase 1.5
 
 **Date:** 2026-10-09  
 **Godot:** 4.3.stable  
-**Branch:** `cursor/cozyblocks-phase1-e5ec`
+**Branch:** `cursor/cozyblocks-phase1_5-visual-e5ec`  
+**Base:** `cursor/cozyblocks-phase1-e5ec`
 
 ## Automated tests
-
-Command:
 
 ```bash
 godot --headless --path . res://tests/test_runner.tscn
@@ -15,78 +14,73 @@ godot --headless --path . res://tests/test_runner.tscn
 | Area | Result |
 |------|--------|
 | Block definitions / lookup | PASS |
-| Inventory add/remove/consume + creative unlimited | PASS |
-| Crafting recipes (consume inputs / produce outputs) | PASS |
-| Placement AABB overlap helper | PASS |
+| Inventory + creative unlimited | PASS |
+| Crafting recipes | PASS |
+| Placement AABB helpers | PASS |
 | World serialize / deserialize | PASS |
 | Chunk mesh + collision after edit | PASS |
+| Meadow ground surface (solid terrain) | PASS |
 
-**Totals: 33 passed, 0 failed.**
+**Totals: 34 passed, 0 failed.**
 
-Headless renderer prints occasional `mesh_get_surface_count` null noise on empty air chunks; does not fail tests.
+Note: ground-surface assertion accepts meadow accents (path/flower/dirt) so dressing does not flake the suite.
 
 ## Graphical smoke (Xvfb + OpenGL compatibility)
 
-Vulkan is unavailable under Xvfb (`VK_KHR_surface` missing). Graphical runs used:
-
 ```bash
-xvfb-run -a -s "-screen 0 1280x720x24" \
-  godot --path . --resolution 1280x720 \
-    --rendering-method gl_compatibility --rendering-driver opengl3
+godot --path . --resolution 1280x720 \
+  --rendering-method gl_compatibility --rendering-driver opengl3
 ```
 
-`COZY_SMOKE=1` results:
+`COZY_SMOKE=1`:
 
 | Check | Result |
 |-------|--------|
-| Launch without fatal errors | PASS (audio falls back to dummy driver — no sound device) |
-| Break block → drop | PASS (`dirt` from grass) |
-| Place block | PASS (wood) |
-| Crafting recipe | PASS (`wood_to_planks`) |
+| Launch | PASS (dummy audio) |
+| Break → drop | PASS (`path_stone` at dressed spawn cell — valid) |
+| Place wood | PASS |
+| Craft `wood_to_planks` | PASS |
 | Save world | PASS |
 
-Screenshot harness (`COZY_SCREENSHOTS=1`) wrote artifacts to `/opt/cursor/artifacts/screenshots/`:
+## Screenshots
 
-- `01_main_building_area.png` — flat grass, sky, ambient props, hotbar, touch UI
-- `02_built_structure.png` — small multi-block house + showcase in distance
-- `03_showcase_environment.png` — Environment & Vegetation section
-- `04_showcase_animals.png` — Fox (animated), Duck, Kenney bear + Quaternius note
-- `05_showcase_furniture.png` — Furniture Kit samples
-- `06_showcase_materials.png` — Poly Haven / prototype / block material cubes
-- `07_crafting_ui.png` — crafting panel with recipes + Make buttons
-- `08_touch_controls.png` — MOVE/LOOK + Jump/Break/Place/Craft overlays
+After shots: `/opt/cursor/artifacts/screenshots/phase1_5_after/`  
+Before (Phase 1): `/opt/cursor/artifacts/screenshots/phase1_before/`  
+Comparisons: `/opt/cursor/artifacts/screenshots/comparisons/`
 
-## Manual checklist (environment limits)
+| Shot | Viewpoint |
+|------|-----------|
+| 01 | Main building / meadow area |
+| 02 | Built playhouse |
+| 03 | Flower garden nook |
+| 04 | Animal friends pen |
+| 05 | Cozy furniture corner |
+| 06 | Block palette |
+| 07 | Crafting UI |
+| 08 | Touch controls |
+| 09 | Meadow path overview (new) |
+| 10 | Garden wide (new) |
 
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Launches without fatal errors | PASS | Graphical + headless |
-| 2 | Move and jump | PARTIAL | Code + touch/desktop bindings present; not hand-piloted in VM |
-| 3 | Target and break a block | PASS | Smoke harness |
-| 4 | Correct resource collected | PASS | Smoke: grass → dirt |
-| 5 | Place a block | PASS | Smoke |
-| 6 | Build a small structure | PASS | Screenshot harness built house |
-| 7 | Hotbar selection | PARTIAL | UI slots + keys implemented; not interactive click-tested |
-| 8 | Creative unlimited | PASS | Unit tests + UI toggle shown ON in shots |
-| 9 | Crafting recipe works | PASS | Unit + smoke |
-| 10 | Imported models/textures render | PARTIAL | Animals/materials clear; some Kenney nature/furniture still wash toward pale under llvmpipe despite metallic fix |
-| 11 | Showcase accessible | PASS | Screenshots of sections |
-| 12 | Save/load | PARTIAL | Save verified in smoke; load exercised in unit deserialize + menu wiring (not separate smoke load step) |
-| 13 | Reset with confirmation | PARTIAL | Confirmation UI implemented; not click-tested in harness |
-| 14 | Tablet for tablet platform | NOT RUN | No Android SDK / signing credentials in environment |
+## Honest visual judgment (rendered result)
 
-## Not verified
+**Improved vs Phase 1:** colorful UI, winding path + flower beds + knolls, denser trees/flowers, Quaternius farm animals with readable colors, garden instead of floating-label museum, clouds + soft fog, clearer block icons.
 
-- Physical touchscreen / iPad / Android device performance
-- Real tablet export (APK/IPA)
-- Audio playback (no ALSA device; dummy driver)
-- Vulkan rendering path
-- Quaternius pack integration (Drive rate-limited)
-- Human mouse-look / WASD play session beyond automated harness
+**Still limited:** llvmpipe flattens shadows; meadow can still read bright/flat in some angles; animal FBX idle clips are not always present (bob fallback); world remains a small finite sandbox (by design).
 
-## Known issues
+Verdict: closer to a **small children’s voxel playground slice** than a grey tech demo, but not final art-complete.
 
-1. Kenney Nature/Furniture materials import with `metallicFactor=1`; runtime override sets metallic=0 but some models still look pale on llvmpipe.
-2. Showcase Label3Ds can clutter the view when standing between sections.
-3. First graphical launch without `--rendering-method gl_compatibility` fails under Xvfb Vulkan.
-4. Grass top texture reads very flat/bright from distance (nearest atlas tile).
+## Manual checklist
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Launches | PASS |
+| 2 | Move / jump | PARTIAL (bindings present) |
+| 3–6 | Break / collect / place / build | PASS (smoke + harness house) |
+| 7 | Hotbar | PARTIAL |
+| 8 | Creative | PASS |
+| 9 | Crafting | PASS |
+| 10 | Models/textures | PASS (animals/garden clear in shots) |
+| 11 | Showcase garden | PASS |
+| 12 | Save/load | PARTIAL (save smoke + deserialize unit) |
+| 13 | Reset confirm | PARTIAL (UI only) |
+| 14 | Tablet tablet | NOT RUN |

@@ -1,0 +1,5 @@
+Quaternius itch.io retry — SUCCESS (Phase 1.5)
+Pack: LowPoly Animated Animals
+URL: https://quaternius.itch.io/lowpoly-animated-animals
+Method: POST /download_url (csrf) → claim page → POST /file/{upload_id} → mirror ZIP
+Google Drive was NOT used (previously rate-limited).

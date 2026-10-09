@@ -1,30 +1,33 @@
-# Asset Evaluation — CozyBlocks Phase 1
+# Asset Evaluation — CozyBlocks Phase 1.5
 
-## Art direction fit (ages 5–8)
+## Art direction fit (ages 5–8) — Sunny Toy Meadow
 
 | Category | Assets | Cohesion | Notes |
 |----------|--------|----------|-------|
-| Environment | Kenney Nature Kit + Mini Forest | Strong | Bright low-poly; scales well vs 1m blocks with ~0.7–1.0 scale |
-| Furniture | Kenney Furniture Kit | Strong | Same Kenney style family as nature kit |
-| Characters | Blocky / Mini Characters | Good | Friendly; slightly different proportions between packs |
-| Animals | Fox/Duck (Khronos) + Kenney bear | Mixed | Quaternius farm animals unavailable; Fox is animated and readable; Duck/Bear are static; styles differ (realistic fox vs toy bear) |
-| Materials | Poly Haven PBR + prototype tiles | Mixed | Poly Haven is photoreal — good for material board, busier than Kenney props; block textures are custom bright tiles for gameplay clarity |
-| Audio | Kenney packs | Strong | Soft UI/impact cues, non-threatening |
-| Sky | Procedural sky + Kenney skybox PNGs + Poly Haven HDRI on disk | Good | Runtime uses procedural sky for consistent lighting; HDRI kept for later |
+| Blocks | Original toy atlas | Strong | Clear grass/dirt/stone/wood/leaves/sand/glass/wool/path |
+| Environment | Kenney Nature + Mini Forest (painted) | Strong | Trees/rocks/flowers read as toys after material override |
+| Garden furniture | Kenney Furniture Kit (painted) | Good | Cozy corner only — not a museum row |
+| Animals | Quaternius Cow/Sheep/Pig/Pug | Good | Same pack family; scaled ~0.09–0.12; idle bob |
+| Sky / light | Procedural sky + soft fog + warm sun | Good | Tuned for tablet; llvmpipe still flattens shadows |
+| Photoreal PBR | Poly Haven on disk | Unused in world | Intentionally not mixed into meadow |
 
-## In-game integration checks
+## Integration checks
 
-- **Vegetation/props:** Placed in AmbientProps near spawn and in Showcase Environment section.
-- **Animals:** Showcase Animals section; Fox AnimationPlayer autoplays Survey/idle-like clip when present.
-- **Scale vs player/blocks:** Kenney nature trees ~player height at 0.7–0.8 scale; Fox requires ~0.02 scale (model units).
-- **Materials:** Showcase Materials section displays Poly Haven + prototype + block wool on cubes.
-- **Animations:** Fox animation previewed when AnimationPlayer found; Duck/Bear have none.
-- **Tablet performance intent:** Mobile renderer, batched voxel meshes, limited world, 1k textures — not profiled on a physical tablet in this environment.
-- **Visual clashes:** Photoreal Poly Haven next to Kenney low-poly is intentionally isolated to the Materials board. Prefer Kenney for world dressing going forward.
+- **Vegetation:** Dense meadow dresser near spawn, path, knolls, and garden
+- **Animals:** Garden “Friends” pen with checkered pad + post fence; Quaternius FBX
+- **Scale:** Farm critters near block/player scale after FBX unit correction
+- **Animations:** Prefer AnimationPlayer idle/eat/walk if present; else `bobbing_animal.gd`
+- **UI:** Rounded cream tray, color-coded touch targets, LOOK separated from hotbar
+- **Tablet intent:** Mobile renderer, fog instead of heavy post FX, limited world size
 
-## Recommendations
+## Quaternius retry outcome
 
-1. Re-attempt Quaternius Drive downloads later for cohesive stylized animals.
-2. Author a single atlas of kid-friendly block textures (replace procedural tiles).
-3. Keep Poly Haven for ground/detail materials sparingly, or stylize them.
-4. Prefer one character kit (Mini or Blocky) for the player avatar in Phase 2.
+1. Phase 1 Google Drive downloads: **blocked** (rate limit)
+2. Phase 1.5 itch.io official listing: **success** via claim `download_url` (see `assets/licenses/quaternius_itch_retry.txt`)
+3. Only four farm animals imported into the playable garden
+
+## Recommendations (later phases)
+
+1. Author a dedicated player avatar from one Kenney character kit
+2. Optional: convert Quaternius FBX → GLB with baked vertex colors to drop runtime paint
+3. Profile shadows/fog on a real tablet before raising shadow map size
