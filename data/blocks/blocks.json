@@ -1,0 +1,19 @@
+{
+  "air": {"id": 0, "display_name": "Air", "solid": false, "breakable": false, "transparent": true, "drop": "", "textures": {}},
+  "grass": {"id": 1, "display_name": "Grass", "solid": true, "breakable": true, "transparent": false, "drop": "dirt", "textures": {"top": "grass_top.png", "bottom": "dirt.png", "side": "grass_side.png"}},
+  "dirt": {"id": 2, "display_name": "Dirt", "solid": true, "breakable": true, "transparent": false, "drop": "dirt", "textures": {"all": "dirt.png"}},
+  "stone": {"id": 3, "display_name": "Stone", "solid": true, "breakable": true, "transparent": false, "drop": "cobble", "textures": {"all": "stone.png"}},
+  "sand": {"id": 4, "display_name": "Sand", "solid": true, "breakable": true, "transparent": false, "drop": "sand", "textures": {"all": "sand.png"}},
+  "wood": {"id": 5, "display_name": "Wood", "solid": true, "breakable": true, "transparent": false, "drop": "wood", "textures": {"top": "wood_top.png", "bottom": "wood_top.png", "side": "wood_side.png"}},
+  "leaves": {"id": 6, "display_name": "Leaves", "solid": true, "breakable": true, "transparent": true, "drop": "leaves", "textures": {"all": "leaves.png"}},
+  "glass": {"id": 7, "display_name": "Glass", "solid": true, "breakable": true, "transparent": true, "drop": "glass", "textures": {"all": "glass.png"}},
+  "planks": {"id": 8, "display_name": "Planks", "solid": true, "breakable": true, "transparent": false, "drop": "planks", "textures": {"all": "planks.png"}},
+  "cobble": {"id": 9, "display_name": "Cobblestone", "solid": true, "breakable": true, "transparent": false, "drop": "cobble", "textures": {"all": "cobble.png"}},
+  "brick": {"id": 10, "display_name": "Brick", "solid": true, "breakable": true, "transparent": false, "drop": "brick", "textures": {"all": "brick.png"}},
+  "wool_red": {"id": 11, "display_name": "Red Wool", "solid": true, "breakable": true, "transparent": false, "drop": "wool_red", "textures": {"all": "wool_red.png"}},
+  "wool_blue": {"id": 12, "display_name": "Blue Wool", "solid": true, "breakable": true, "transparent": false, "drop": "wool_blue", "textures": {"all": "wool_blue.png"}},
+  "wool_yellow": {"id": 13, "display_name": "Yellow Wool", "solid": true, "breakable": true, "transparent": false, "drop": "wool_yellow", "textures": {"all": "wool_yellow.png"}},
+  "wool_pink": {"id": 14, "display_name": "Pink Wool", "solid": true, "breakable": true, "transparent": false, "drop": "wool_pink", "textures": {"all": "wool_pink.png"}},
+  "wool_green": {"id": 15, "display_name": "Green Wool", "solid": true, "breakable": true, "transparent": false, "drop": "wool_green", "textures": {"all": "wool_green.png"}},
+  "flower_block": {"id": 16, "display_name": "Flower Block", "solid": true, "breakable": true, "transparent": false, "drop": "flower_block", "textures": {"all": "flower_block.png"}}
+}

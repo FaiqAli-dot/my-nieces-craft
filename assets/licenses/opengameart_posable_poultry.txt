@@ -1,0 +1,4 @@
+OpenGameArt Posable Poultry (chickens.zip)
+Source: https://opengameart.org/content/posable-poultry
+Downloaded blend-only archive; not converted to GLB (Blender not available).
+Not integrated as a 3D showcase model.

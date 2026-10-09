@@ -1,0 +1,32 @@
+[
+  {
+    "id": "wood_to_planks",
+    "label": "Planks",
+    "inputs": {"wood": 1},
+    "output": {"item": "planks", "count": 4}
+  },
+  {
+    "id": "planks_to_sticks",
+    "label": "Sticks",
+    "inputs": {"planks": 2},
+    "output": {"item": "sticks", "count": 4}
+  },
+  {
+    "id": "wood_frame",
+    "label": "Wood Frame",
+    "inputs": {"wood": 1, "planks": 2},
+    "output": {"item": "brick", "count": 2}
+  },
+  {
+    "id": "glass_from_sand",
+    "label": "Glass",
+    "inputs": {"sand": 2},
+    "output": {"item": "glass", "count": 1}
+  },
+  {
+    "id": "flower_mix",
+    "label": "Flower Block",
+    "inputs": {"leaves": 2, "planks": 1},
+    "output": {"item": "flower_block", "count": 1}
+  }
+]

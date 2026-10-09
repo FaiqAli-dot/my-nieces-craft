@@ -1,0 +1,5 @@
+Poly Haven assets (CC0 1.0 Universal)
+Source: https://polyhaven.com/
+- HDRI: kloppenheim_06_puresky (1k)
+- Textures 1k: grass_path_2, brown_mud_03, rock_face_03, wood_table_001, sandy_gravel_02
+License: CC0 — no attribution required, attribution appreciated.
