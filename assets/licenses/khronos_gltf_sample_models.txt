@@ -1,0 +1,5 @@
+Khronos Group glTF-Sample-Models
+Source: https://github.com/KhronosGroup/glTF-Sample-Models
+License: CC0 / as stated per model (Fox and Duck samples used here are CC0 / public domain style permissive)
+Fox: Copyright 2017 Cesium, CC0
+Duck: Sony Computer Entertainment Inc., CC BY (check LICENSE.md) — used as temporary animal preview asset.

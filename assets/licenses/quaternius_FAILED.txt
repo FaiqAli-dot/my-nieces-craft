@@ -1,0 +1,5 @@
+Quaternius Ultimate Animated Animals / Ultimate Stylized Nature
+Source: https://quaternius.com/ (Google Drive distribution)
+Attempted: 2026-10-09 via gdown folder download
+Result: FAILED — Google Drive returned "Too many users have viewed or downloaded this file recently"
+No Quaternius model files were successfully retrieved. See docs/ASSET_MANIFEST.md.
