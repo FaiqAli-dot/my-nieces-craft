@@ -27,6 +27,14 @@ Documented in `docs/ART_DIRECTION.md`:
 - Quaternius farm animals via itch.io + paint textures + idle bob  
 - Colorful hotbar / touch UI; LOOK separated from hotbar  
 
+## Polish pass (same PR)
+
+- ACES tonemap, lower wash, deeper grass/sand/path albedos  
+- Animals scaled to ~1.5 / 1.2 / 1.1 / 0.65 block heights; closer pen framing  
+- Removed grey cobble rim walls; grass-on-dirt knolls only  
+- Speckle noise removed from grass texture; clustered flower props instead  
+- Unshaded per-face vertex tint (tops lighter, sides darker) for gl_compatibility  
+
 ## Gameplay preserved
 
 Block place/break, inventory, crafting, save — exercised by unit tests + smoke.

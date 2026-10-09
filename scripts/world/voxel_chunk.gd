@@ -69,14 +69,14 @@ func rebuild_mesh() -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var atlas := BlockDB.get_atlas_texture()
-	# Per-face shade colors (multiplied with atlas via vertex_color_use_as_albedo)
+	# Strong per-face shade (unshaded × vertex color) so walls read in screenshots
 	var faces := [
-		{"n": Vector3.UP, "d": [Vector3(0,1,0), Vector3(1,1,0), Vector3(1,1,1), Vector3(0,1,1)], "key": "top", "ox":0,"oy":1,"oz":0, "shade": Color(1.0, 1.0, 0.96)},
-		{"n": Vector3.DOWN, "d": [Vector3(0,0,1), Vector3(1,0,1), Vector3(1,0,0), Vector3(0,0,0)], "key": "bottom", "ox":0,"oy":-1,"oz":0, "shade": Color(0.48, 0.45, 0.42)},
-		{"n": Vector3.FORWARD, "d": [Vector3(1,0,0), Vector3(0,0,0), Vector3(0,1,0), Vector3(1,1,0)], "key": "side", "ox":0,"oy":0,"oz":-1, "shade": Color(0.62, 0.64, 0.68)},
-		{"n": Vector3.BACK, "d": [Vector3(0,0,1), Vector3(1,0,1), Vector3(1,1,1), Vector3(0,1,1)], "key": "side", "ox":0,"oy":0,"oz":1, "shade": Color(0.80, 0.78, 0.74)},
-		{"n": Vector3.LEFT, "d": [Vector3(0,0,0), Vector3(0,0,1), Vector3(0,1,1), Vector3(0,1,0)], "key": "side", "ox":-1,"oy":0,"oz":0, "shade": Color(0.58, 0.60, 0.64)},
-		{"n": Vector3.RIGHT, "d": [Vector3(1,0,1), Vector3(1,0,0), Vector3(1,1,0), Vector3(1,1,1)], "key": "side", "ox":1,"oy":0,"oz":0, "shade": Color(0.86, 0.84, 0.78)},
+		{"n": Vector3.UP, "d": [Vector3(0,1,0), Vector3(1,1,0), Vector3(1,1,1), Vector3(0,1,1)], "key": "top", "ox":0,"oy":1,"oz":0, "shade": Color(1.0, 1.0, 0.95)},
+		{"n": Vector3.DOWN, "d": [Vector3(0,0,1), Vector3(1,0,1), Vector3(1,0,0), Vector3(0,0,0)], "key": "bottom", "ox":0,"oy":-1,"oz":0, "shade": Color(0.40, 0.38, 0.36)},
+		{"n": Vector3.FORWARD, "d": [Vector3(1,0,0), Vector3(0,0,0), Vector3(0,1,0), Vector3(1,1,0)], "key": "side", "ox":0,"oy":0,"oz":-1, "shade": Color(0.55, 0.57, 0.60)},
+		{"n": Vector3.BACK, "d": [Vector3(0,0,1), Vector3(1,0,1), Vector3(1,1,1), Vector3(0,1,1)], "key": "side", "ox":0,"oy":0,"oz":1, "shade": Color(0.78, 0.76, 0.72)},
+		{"n": Vector3.LEFT, "d": [Vector3(0,0,0), Vector3(0,0,1), Vector3(0,1,1), Vector3(0,1,0)], "key": "side", "ox":-1,"oy":0,"oz":0, "shade": Color(0.48, 0.50, 0.54)},
+		{"n": Vector3.RIGHT, "d": [Vector3(1,0,1), Vector3(1,0,0), Vector3(1,1,0), Vector3(1,1,1)], "key": "side", "ox":1,"oy":0,"oz":0, "shade": Color(0.88, 0.85, 0.80)},
 	]
 	var collider := ConcavePolygonShape3D.new()
 	var coll_faces: PackedVector3Array = PackedVector3Array()
