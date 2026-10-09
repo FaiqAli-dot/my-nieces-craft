@@ -27,47 +27,46 @@ func _setup_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
 	var sky_mat := ProceduralSkyMaterial.new()
-	# Sunny Toy Meadow palette — deeper sky for clearer horizon
-	sky_mat.sky_top_color = Color(0.28, 0.58, 0.92)
-	sky_mat.sky_horizon_color = Color(0.78, 0.90, 0.98)
-	sky_mat.ground_bottom_color = Color(0.35, 0.55, 0.28)
-	sky_mat.ground_horizon_color = Color(0.62, 0.78, 0.48)
-	sky_mat.sun_angle_max = 30.0
-	sky_mat.sun_curve = 0.12
+	# Clear sky blue, distinct from meadow green horizon
+	sky_mat.sky_top_color = Color(0.18, 0.48, 0.90)
+	sky_mat.sky_horizon_color = Color(0.55, 0.78, 0.96)
+	sky_mat.ground_bottom_color = Color(0.18, 0.38, 0.14)
+	sky_mat.ground_horizon_color = Color(0.28, 0.50, 0.22)
+	sky_mat.sun_angle_max = 26.0
+	sky_mat.sun_curve = 0.08
 	sky.sky_material = sky_mat
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.72, 0.80, 0.88)
-	env.ambient_light_energy = 0.55
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 0.58
+	env.ambient_light_color = Color(0.55, 0.62, 0.72)
+	env.ambient_light_energy = 0.32
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_exposure = 0.72
+	env.tonemap_white = 1.05
 	env.ssao_enabled = false
 	env.glow_enabled = false
-	# Soft distance falloff (keeps tablet fill-rate modest)
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.72, 0.84, 0.95)
-	env.fog_density = 0.022
-	env.fog_aerial_perspective = 0.5
-	env.fog_sky_affect = 0.25
+	env.fog_light_color = Color(0.48, 0.66, 0.88)
+	env.fog_density = 0.005
+	env.fog_aerial_perspective = 0.12
+	env.fog_sky_affect = 0.04
 	var world_env := WorldEnvironment.new()
 	world_env.environment = env
 	add_child(world_env)
 
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-55, 42, 0)
-	sun.light_color = Color(1.0, 0.93, 0.80)
-	sun.light_energy = 0.88
+	sun.rotation_degrees = Vector3(-48, 40, 0)
+	sun.light_color = Color(1.0, 0.94, 0.78)
+	sun.light_energy = 0.85
 	sun.shadow_enabled = true
-	sun.shadow_opacity = 0.9
+	sun.shadow_opacity = 0.65
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
 	sun.directional_shadow_max_distance = 70.0
 	add_child(sun)
 
-	# Gentle fill so shadowed faces stay readable for kids
 	var fill := DirectionalLight3D.new()
 	fill.rotation_degrees = Vector3(-25, -120, 0)
-	fill.light_color = Color(0.70, 0.82, 0.98)
-	fill.light_energy = 0.28
+	fill.light_color = Color(0.60, 0.72, 0.95)
+	fill.light_energy = 0.2
 	fill.shadow_enabled = false
 	add_child(fill)
 

@@ -150,82 +150,47 @@ func generate_flat_world() -> void:
 
 
 func _dress_meadow() -> void:
-	## Paths, flower beds, play patches, rim hills, and a cozy starter pad.
+	## Paths, clustered flower beds, sand patch, grass-on-dirt knolls, starter pad.
+	## No random speckles and no grey cobble rim walls.
 	var path_id := BlockDB.get_id("path_stone")
 	var sand_id := BlockDB.get_id("sand")
 	var flower_id := BlockDB.get_id("flower_block")
-	var cobble_id := BlockDB.get_id("cobble")
 	var dirt_id := BlockDB.get_id("dirt")
 	var planks_id := BlockDB.get_id("planks")
 	var wool_y := BlockDB.get_id("wool_yellow")
 	var wool_p := BlockDB.get_id("wool_pink")
 	var grass_id := BlockDB.get_id("grass")
-	var leaves_id := BlockDB.get_id("leaves")
-	# Winding path from spawn toward garden
-	for t in 30:
+	# Winding warm path from spawn toward garden
+	for t in 28:
 		var x := 32 + int(round(t * 0.55))
 		var z := 32 - t
-		_stamp_disk(x, z, 1 if t % 3 != 0 else 2, path_id)
-	# Side spur path to flower nook
-	for t in 10:
+		_stamp_disk(x, z, 1, path_id)
+	# Side spur to flower nook
+	for t in 8:
 		_stamp_disk(24 + t, 28 - int(t * 0.3), 1, path_id)
-	# Soft sand play patch near spawn
+	# Golden sand play patch near spawn
 	_stamp_disk(28, 36, 3, sand_id)
-	_stamp_disk(27, 37, 1, sand_id)
-	# Flower beds (filled, not just rings)
+	# Clustered flower beds only (intentional, not noise)
 	_stamp_disk(22, 24, 2, flower_id)
-	_stamp_ring(22, 24, 3, flower_id)
 	_stamp_disk(40, 22, 2, flower_id)
-	_stamp_disk(18, 40, 2, flower_id)
-	# Dirt garden beds + leaf accents
-	_stamp_disk(24, 30, 2, dirt_id)
-	_stamp_disk(38, 28, 2, dirt_id)
-	set_block(24, GROUND_Y, 30, leaves_id, false)
-	set_block(38, GROUND_Y, 28, leaves_id, false)
-	# Sparse meadow speckles so grass doesn't read as one tile forever
-	for i in 40:
-		var sx := 10 + (i * 7) % 44
-		var sz := 10 + (i * 11) % 44
-		if get_block(sx, GROUND_Y, sz) == grass_id and (i % 3) == 0:
-			set_block(sx, GROUND_Y, sz, flower_id if i % 2 == 0 else dirt_id, false)
-	# Soft natural rim mounds (not a pillar arena) — clustered low hills on the border
-	for i in 10:
-		var bx := 6 + i * 5
-		var bz := 6 + i * 5
-		for edge in [
-			Vector2i(bx, 5), Vector2i(bx, 58),
-			Vector2i(5, bz), Vector2i(58, bz),
-		]:
-			if not in_bounds(edge.x, GROUND_Y, edge.y):
-				continue
-			set_block(edge.x, GROUND_Y, edge.y, dirt_id, false)
-			set_block(edge.x, GROUND_Y + 1, edge.y, grass_id, false)
-			# occasional 2-high mound with a flower or cobble accent
-			if i % 2 == 0:
-				set_block(edge.x, GROUND_Y + 2, edge.y, grass_id, false)
-			if i % 3 == 0 and in_bounds(edge.x + 1, GROUND_Y, edge.y):
-				set_block(edge.x + 1, GROUND_Y, edge.y, cobble_id, false)
-				set_block(edge.x + 1, GROUND_Y + 1, edge.y, flower_id if i % 2 == 0 else grass_id, false)
-	# Low hillock near garden for silhouette
-	for dx in range(-3, 4):
-		for dz in range(-3, 4):
-			var d2 := dx * dx + dz * dz
-			if d2 <= 8:
-				set_block(45 + dx, GROUND_Y + 1, 14 + dz, dirt_id, false)
-				set_block(45 + dx, GROUND_Y + 2, 14 + dz, grass_id, false)
-			if d2 <= 2:
-				set_block(45 + dx, GROUND_Y + 3, 14 + dz, grass_id, false)
-	# Second smaller knoll near spawn for depth
-	for dx in range(-2, 3):
-		for dz in range(-2, 3):
-			if dx * dx + dz * dz <= 4:
-				set_block(20 + dx, GROUND_Y + 1, 44 + dz, dirt_id, false)
-				set_block(20 + dx, GROUND_Y + 2, 44 + dz, grass_id, false)
-	# Cozy starter build pad (planks floor + wool corner markers)
+	_stamp_disk(18, 40, 1, flower_id)
+	# Small dirt garden beds
+	_stamp_disk(24, 30, 1, dirt_id)
+	_stamp_disk(38, 28, 1, dirt_id)
+	# Soft world-edge mounds only (keep garden / spawn views clear of grey cliffs)
+	for i in 6:
+		var bx := 10 + i * 8
+		var bz := 10 + i * 8
+		for edge in [Vector2i(bx, 6), Vector2i(bx, 57), Vector2i(6, bz), Vector2i(57, bz)]:
+			_grass_dirt_mound(edge.x, edge.y, 1)
+	# Small grass-on-dirt knolls away from the animal pen
+	_build_knoll(16, 18, 2, 1)
+	_build_knoll(50, 48, 2, 1)
+	_build_knoll(22, 48, 2, 1)
+	# Cozy starter build pad
 	for x in range(34, 40):
 		for z in range(34, 40):
 			set_block(x, GROUND_Y, z, planks_id, false)
-	# Path ring around pad
 	for x in range(33, 41):
 		set_block(x, GROUND_Y, 33, path_id, false)
 		set_block(x, GROUND_Y, 40, path_id, false)
@@ -236,6 +201,44 @@ func _dress_meadow() -> void:
 	set_block(39, GROUND_Y + 1, 34, wool_p, false)
 	set_block(34, GROUND_Y + 1, 39, wool_p, false)
 	set_block(39, GROUND_Y + 1, 39, wool_y, false)
+
+
+func _grass_dirt_mound(cx: int, cz: int, height: int) -> void:
+	var dirt_id := BlockDB.get_id("dirt")
+	var grass_id := BlockDB.get_id("grass")
+	if not in_bounds(cx, GROUND_Y, cz):
+		return
+	set_block(cx, GROUND_Y, cz, dirt_id, false)
+	for h in range(1, height + 1):
+		set_block(cx, GROUND_Y + h, cz, grass_id if h == height else dirt_id, false)
+	# skirt of grass-topped dirt for layered edge read
+	var dirs: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	for d in dirs:
+		var nx: int = cx + d.x
+		var nz: int = cz + d.y
+		if in_bounds(nx, GROUND_Y, nz) and get_block(nx, GROUND_Y, nz) == grass_id:
+			set_block(nx, GROUND_Y, nz, dirt_id, false)
+			set_block(nx, GROUND_Y + 1, nz, grass_id, false)
+
+
+func _build_knoll(cx: int, cz: int, radius: int, peak: int) -> void:
+	var dirt_id := BlockDB.get_id("dirt")
+	var grass_id := BlockDB.get_id("grass")
+	for dx in range(-radius, radius + 1):
+		for dz in range(-radius, radius + 1):
+			var d2 := dx * dx + dz * dz
+			if d2 > radius * radius:
+				continue
+			var h := 1
+			if d2 <= 1:
+				h = peak + 1
+			elif d2 <= (radius - 1) * (radius - 1):
+				h = peak
+			for y in range(1, h + 1):
+				var id := grass_id if y == h else dirt_id
+				set_block(cx + dx, GROUND_Y + y, cz + dz, id, false)
+			# ensure base under mound is dirt so sides show warm soil
+			set_block(cx + dx, GROUND_Y, cz + dz, dirt_id, false)
 
 
 func _stamp_disk(cx: int, cz: int, radius: int, id: int) -> void:

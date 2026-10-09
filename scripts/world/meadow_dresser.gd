@@ -55,7 +55,7 @@ func _paint_prop(node: Node, fn: String) -> void:
 				elif fn.find("mushroom") >= 0:
 					sm.albedo_color = Color(0.88, 0.22, 0.28) if si == 0 else Color(0.95, 0.90, 0.78)
 				elif fn.find("rock") >= 0:
-					sm.albedo_color = Color(0.58, 0.60, 0.64)
+					sm.albedo_color = Color(0.62, 0.56, 0.48)  # warm stone, not cold grey
 				elif fn.find("grass") >= 0 or fn.find("plant") >= 0 or fn.find("bush") >= 0 or fn.find("patch") >= 0:
 					sm.albedo_color = Color(0.30, 0.74, 0.36)
 				else:
@@ -98,14 +98,11 @@ func _place_trees(props: Node3D) -> void:
 
 func _place_rocks(props: Node3D) -> void:
 	var gy := float(VoxelWorld.GROUND_Y + 1)
+	# Few warm stones only — avoid grey slab walls in the play view
 	var rocks := [
-		["res://assets/models/nature/rock_largeA.glb", Vector3(30, gy, 20), 0.95, 0.0],
-		["res://assets/models/nature/rock_smallA.glb", Vector3(31, gy, 18), 1.05, 20.0],
-		["res://assets/models/nature/rock_smallA.glb", Vector3(29, gy, 21), 0.85, 50.0],
-		["res://assets/models/nature/rock_tallA.glb", Vector3(44, gy, 40), 0.85, 35.0],
-		["res://assets/models/props/rocks-low.glb", Vector3(22, gy, 40), 1.05, 10.0],
-		["res://assets/models/nature/rock_largeA.glb", Vector3(36, gy, 48), 0.8, 60.0],
-		["res://assets/models/nature/rock_smallA.glb", Vector3(48, gy, 28), 1.0, 15.0],
+		["res://assets/models/nature/rock_smallA.glb", Vector3(30, gy, 20), 0.9, 0.0],
+		["res://assets/models/nature/rock_smallA.glb", Vector3(31, gy, 18), 0.8, 20.0],
+		["res://assets/models/nature/rock_smallA.glb", Vector3(22, gy, 42), 0.85, 10.0],
 	]
 	for r in rocks:
 		_spawn(r[0], props, r[1], r[2], r[3])
@@ -135,23 +132,28 @@ func _place_flowers(props: Node3D) -> void:
 	]
 	for i in flowers.size():
 		var f = flowers[i]
-		_spawn(f[0], props, f[1], f[2], float(i * 17))
+		# Larger scale so flowers read as props, not speckles
+		_spawn(f[0], props, f[1], float(f[2]) * 1.35, float(i * 17))
 
 
 func _place_pathside(props: Node3D) -> void:
-	## Extra tufts along the winding path so the walk feels planted.
+	## Clustered flower/tuft groups along the path — intentional, not noise.
 	var gy := float(VoxelWorld.GROUND_Y + 1)
-	for t in 12:
-		var x := 32.0 + t * 0.55
-		var z := 32.0 - float(t) * 1.0
-		var side := 1.2 if t % 2 == 0 else -1.2
-		_spawn(
-			"res://assets/models/nature/flower_yellowA.glb" if t % 3 == 0 else "res://assets/models/nature/grass.glb",
-			props,
-			Vector3(x + side, gy, z),
-			1.15,
-			float(t * 25)
-		)
+	var clusters := [
+		Vector3(30, gy, 30), Vector3(34, gy, 26), Vector3(38, gy, 22),
+		Vector3(26, gy, 28), Vector3(42, gy, 18),
+	]
+	var kinds := [
+		"res://assets/models/nature/flower_redA.glb",
+		"res://assets/models/nature/flower_yellowA.glb",
+		"res://assets/models/nature/flower_purpleA.glb",
+		"res://assets/models/nature/grass_large.glb",
+	]
+	for ci in clusters.size():
+		var c: Vector3 = clusters[ci]
+		for j in 3:
+			var ang := float(j) * TAU / 3.0 + float(ci)
+			_spawn(kinds[(ci + j) % kinds.size()], props, c + Vector3(cos(ang) * 0.55, 0, sin(ang) * 0.55), 1.7, rad_to_deg(ang))
 
 
 func _place_clouds(root: Node3D) -> void:
@@ -160,7 +162,7 @@ func _place_clouds(root: Node3D) -> void:
 	root.add_child(clouds)
 	for i in 8:
 		var cluster := Node3D.new()
-		cluster.position = Vector3(6 + i * 7.5, 20 + (i % 3) * 1.8, 4 + (i * 6) % 48)
+		cluster.position = Vector3(6 + i * 7.5, 22 + (i % 3) * 1.8, 4 + (i * 6) % 48)
 		clouds.add_child(cluster)
 		for p in 3:
 			var mi := MeshInstance3D.new()
@@ -171,10 +173,11 @@ func _place_clouds(root: Node3D) -> void:
 			sphere.rings = 6
 			mi.mesh = sphere
 			var mat := StandardMaterial3D.new()
-			mat.albedo_color = Color(0.97, 0.98, 1.0, 0.88)
+			# Opaque soft white — alpha clouds punch black holes on gl_compatibility
+			mat.albedo_color = Color(0.96, 0.97, 1.0, 1.0)
 			mat.roughness = 1.0
 			mat.metallic = 0.0
-			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 			mi.material_override = mat
 			mi.position = Vector3(p * 1.5 - 1.5, (p % 2) * 0.4, (p - 1) * 0.8)
 			cluster.add_child(mi)

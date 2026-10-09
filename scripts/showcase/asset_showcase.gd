@@ -103,22 +103,14 @@ func _spawn(path: String, origin: Vector3, scale_factor: float = 1.0, yaw: float
 
 	var ap := _find_anim(node)
 	var host := Node3D.new()
-	if ap == null:
-		host.set_script(load("res://scripts/showcase/bobbing_animal.gd"))
+	# Prefer gentle bob — some FBX clips leave animals lying down / unreadable
+	host.set_script(load("res://scripts/showcase/bobbing_animal.gd"))
 	host.position = origin
 	add_child(host)
 	host.add_child(node)
 	if ap:
+		ap.active = false
 		_anim_players.append(ap)
-		var anims := ap.get_animation_list()
-		if anims.size() > 0:
-			var pick := ""
-			for a in anims:
-				var s := String(a).to_lower()
-				if s.find("idle") >= 0 or s.find("eat") >= 0 or s.find("walk") >= 0:
-					pick = a
-					break
-			ap.play(pick if pick != "" else anims[0])
 	return host
 
 
@@ -177,13 +169,10 @@ func _add_ground_plaque(pos: Vector3, text: String, color: Color) -> void:
 
 
 func _fence_rect(center: Vector3, half_w: float, half_d: float) -> void:
-	# Simple colored post ring using boxes (toy fence)
+	# Toy fence: posts + rails so the pen reads clearly
 	var posts: Array[Vector3] = []
-	for x in [-half_w, half_w]:
-		for z in [-half_d, half_d]:
-			posts.append(center + Vector3(x, 0, z))
-	for i in 5:
-		var t := float(i) / 4.0
+	for i in 6:
+		var t := float(i) / 5.0
 		posts.append(center + Vector3(lerpf(-half_w, half_w, t), 0, -half_d))
 		posts.append(center + Vector3(lerpf(-half_w, half_w, t), 0, half_d))
 		posts.append(center + Vector3(-half_w, 0, lerpf(-half_d, half_d, t)))
@@ -191,42 +180,59 @@ func _fence_rect(center: Vector3, half_w: float, half_d: float) -> void:
 	for p in posts:
 		var mi := MeshInstance3D.new()
 		var box := BoxMesh.new()
-		box.size = Vector3(0.12, 0.7, 0.12)
+		box.size = Vector3(0.16, 1.1, 0.16)
 		mi.mesh = box
 		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color(0.72, 0.5, 0.28)
+		mat.albedo_color = Color(0.62, 0.40, 0.20)
 		mat.roughness = 0.9
 		mi.material_override = mat
-		mi.position = p + Vector3(0, 0.35, 0)
+		mi.position = p + Vector3(0, 0.55, 0)
 		add_child(mi)
+	# Horizontal rails
+	for rail_y in [0.35, 0.75]:
+		for seg in [
+			[Vector3(0, rail_y, -half_d), Vector3(half_w * 2, 0.08, 0.1)],
+			[Vector3(0, rail_y, half_d), Vector3(half_w * 2, 0.08, 0.1)],
+			[Vector3(-half_w, rail_y, 0), Vector3(0.1, 0.08, half_d * 2)],
+			[Vector3(half_w, rail_y, 0), Vector3(0.1, 0.08, half_d * 2)],
+		]:
+			var mi := MeshInstance3D.new()
+			var box := BoxMesh.new()
+			box.size = seg[1]
+			mi.mesh = box
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = Color(0.72, 0.50, 0.28)
+			mat.roughness = 0.9
+			mi.material_override = mat
+			mi.position = center + seg[0]
+			add_child(mi)
 
 
 func _build_animal_pen(origin: Vector3) -> void:
-	_add_ground_plaque(origin + Vector3(0, 0.02, -2.6), "Friends", Color(0.95, 0.8, 0.45))
-	_fence_rect(origin, 3.2, 2.4)
-	# Soft padded floor so animals sit in a playable pen, not raw grass
-	for dx in range(-3, 4):
-		for dz in range(-2, 3):
-			var pad := MeshInstance3D.new()
-			var box := BoxMesh.new()
-			box.size = Vector3(0.95, 0.08, 0.95)
-			pad.mesh = box
-			var mat := StandardMaterial3D.new()
-			mat.albedo_color = Color(0.55, 0.78, 0.45) if (dx + dz) % 2 == 0 else Color(0.48, 0.72, 0.40)
-			mat.roughness = 0.95
-			pad.material_override = mat
-			pad.position = origin + Vector3(dx * 0.95, 0.04, dz * 0.95)
-			add_child(pad)
-	# Quaternius CC0 animals — friendly farm set
-	# FBX units vary; ~0.085 keeps farm critters near player/block scale
+	_add_ground_plaque(origin + Vector3(0, 0.02, -4.2), "Friends", Color(0.95, 0.78, 0.35))
+	_fence_rect(origin, 4.5, 3.5)
+	# Soft solid pad (no busy checkers)
+	var pad := MeshInstance3D.new()
+	var pad_box := BoxMesh.new()
+	pad_box.size = Vector3(8.6, 0.1, 6.6)
+	pad.mesh = pad_box
+	var pad_mat := StandardMaterial3D.new()
+	pad_mat.albedo_color = Color(0.38, 0.62, 0.30)
+	pad_mat.roughness = 0.95
+	pad_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	pad.material_override = pad_mat
+	pad.position = origin + Vector3(0, 0.05, 0)
+	add_child(pad)
+	# Quaternius AABB at scale 1: cow≈5.15 tall, pig≈4.6, pug≈1.05; sheep pivot sits high.
+	# Target: cow ~1.5, sheep ~1.15, pig ~1.0, pug ~0.65 blocks tall.
 	var animals := [
-		["res://assets/models/animals/quaternius/Cow.fbx", Vector3(-1.8, 0.08, 0.6), 0.09],
-		["res://assets/models/animals/quaternius/Sheep.fbx", Vector3(0.2, 0.08, -0.8), 0.10],
-		["res://assets/models/animals/quaternius/Pig.fbx", Vector3(1.8, 0.08, 0.4), 0.10],
-		["res://assets/models/animals/quaternius/Pug.fbx", Vector3(0.5, 0.08, 1.4), 0.12],
+		["res://assets/models/animals/quaternius/Cow.fbx", Vector3(-2.4, 0.05, 0.2), 0.30, 25.0],
+		["res://assets/models/animals/quaternius/Sheep.fbx", Vector3(1.0, 1.35, -1.4), 0.20, -15.0],
+		["res://assets/models/animals/quaternius/Pig.fbx", Vector3(2.5, 0.05, 0.8), 0.28, 40.0],
+		["res://assets/models/animals/quaternius/Pug.fbx", Vector3(-0.4, 0.05, 2.0), 0.58, -25.0],
 	]
 	for a in animals:
-		_spawn(a[0], origin + a[1], a[2], randf() * 40.0)
+		_spawn(a[0], origin + a[1], a[2], a[3])
 
 
 func _build_flower_nook(origin: Vector3) -> void:

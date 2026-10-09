@@ -34,52 +34,51 @@ func _capture_all() -> void:
 	var world: VoxelWorld = main.get_node("VoxelWorld")
 	var showcase: Node3D = main.get_node("Showcase")
 
-	# 01 main building / meadow area — elevated overview of pad + path + trees
-	_aim(player, Vector3(28, 8.0, 46), 0.25, -0.28)
+	# 01 main meadow — mid overview showing path, sand, trees, knoll (not washed sky)
+	_aim(player, Vector3(29, 7.2, 44), 0.2, -0.22)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("01_main_building_area.png"))
 
-	# Build a small playhouse on the cozy pad (wood walls, leaf roof, glass windows)
+	# Compact playhouse: warm planks + wood trim + leaf roof (reads clearly with face shade)
 	var wood := BlockDB.get_id("wood")
 	var planks := BlockDB.get_id("planks")
 	var leaves := BlockDB.get_id("leaves")
 	var glass := BlockDB.get_id("glass")
 	var wool := BlockDB.get_id("wool_pink")
-	for x in range(34, 40):
-		for z in range(34, 40):
+	for x in range(35, 39):
+		for z in range(35, 39):
 			world.set_block(x, VoxelWorld.GROUND_Y + 1, z, planks, true)
 	for y in range(VoxelWorld.GROUND_Y + 2, VoxelWorld.GROUND_Y + 5):
-		for x in range(34, 40):
-			world.set_block(x, y, 34, wood, true)
-			world.set_block(x, y, 39, wood, true)
-		for z in range(34, 40):
-			world.set_block(34, y, z, wood, true)
-			world.set_block(39, y, z, wood, true)
-	for x in range(34, 40):
-		for z in range(34, 40):
+		for x in range(35, 39):
+			world.set_block(x, y, 35, planks, true)
+			world.set_block(x, y, 38, planks, true)
+		for z in range(35, 39):
+			world.set_block(35, y, z, wood, true)
+			world.set_block(38, y, z, wood, true)
+	for x in range(35, 39):
+		for z in range(35, 39):
 			world.set_block(x, VoxelWorld.GROUND_Y + 5, z, leaves, true)
-	# Doorway + glass windows + pink flower accent
-	world.set_block(36, VoxelWorld.GROUND_Y + 2, 34, 0, true)
-	world.set_block(37, VoxelWorld.GROUND_Y + 2, 34, 0, true)
-	world.set_block(36, VoxelWorld.GROUND_Y + 3, 34, 0, true)
-	world.set_block(37, VoxelWorld.GROUND_Y + 3, 34, 0, true)
-	world.set_block(39, VoxelWorld.GROUND_Y + 3, 36, glass, true)
-	world.set_block(39, VoxelWorld.GROUND_Y + 3, 37, glass, true)
-	world.set_block(35, VoxelWorld.GROUND_Y + 2, 34, wool, true)
+	world.set_block(36, VoxelWorld.GROUND_Y + 2, 35, 0, true)
+	world.set_block(37, VoxelWorld.GROUND_Y + 2, 35, 0, true)
+	world.set_block(36, VoxelWorld.GROUND_Y + 3, 35, 0, true)
+	world.set_block(37, VoxelWorld.GROUND_Y + 3, 35, 0, true)
+	world.set_block(38, VoxelWorld.GROUND_Y + 3, 36, glass, true)
+	world.set_block(38, VoxelWorld.GROUND_Y + 3, 37, glass, true)
+	world.set_block(35, VoxelWorld.GROUND_Y + 2, 35, wool, true)
 
-	var house_center := Vector3(37, 7.0, 37)
-	var cam_pos := Vector3(44, 8.2, 46)
+	var house_center := Vector3(37, 6.8, 37)
+	var cam_pos := Vector3(42, 7.4, 44)
 	var dir := (house_center - cam_pos).normalized()
 	var yaw := atan2(-dir.x, -dir.z)
-	_aim(player, cam_pos, yaw, -0.3)
+	_aim(player, cam_pos, yaw, -0.22)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("02_built_structure.png"))
 
-	# Garden / animals (showcase root) — closer so critters read clearly
+	# Garden / animals — close eye-level framing of the pen
 	var base := showcase.global_position
-	_aim(player, base + Vector3(0.2, 2.2, 5.8), 0.05, -0.18)
+	_aim(player, base + Vector3(0.0, 1.85, 6.0), 0.0, -0.05)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("04_showcase_animals.png"))

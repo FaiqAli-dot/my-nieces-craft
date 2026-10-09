@@ -1,9 +1,9 @@
 extends Node3D
 ## Idle bob + gentle yaw for static animal models.
 
-@export var bob_amp := 0.04
-@export var bob_speed := 2.2
-@export var yaw_amp := 0.08
+@export var bob_amp := 0.03
+@export var bob_speed := 1.8
+@export var yaw_amp := 0.05
 
 var _base_y := 0.0
 var _base_yaw := 0.0
