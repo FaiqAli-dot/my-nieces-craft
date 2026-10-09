@@ -66,18 +66,18 @@ func _capture_all() -> void:
 	world.set_block(38, VoxelWorld.GROUND_Y + 3, 37, glass, true)
 	world.set_block(35, VoxelWorld.GROUND_Y + 2, 35, wool, true)
 
-	var house_center := Vector3(37, 6.8, 37)
-	var cam_pos := Vector3(42, 7.4, 44)
+	var house_center := Vector3(36.5, 6.5, 36.5)
+	var cam_pos := Vector3(40.5, 7.2, 41.5)
 	var dir := (house_center - cam_pos).normalized()
 	var yaw := atan2(-dir.x, -dir.z)
-	_aim(player, cam_pos, yaw, -0.22)
+	_aim(player, cam_pos, yaw, -0.18)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("02_built_structure.png"))
 
-	# Garden / animals — close eye-level framing of the pen
+	# Garden / animals — close eye-level framing of the pen (keepout clears MM trees)
 	var base := showcase.global_position
-	_aim(player, base + Vector3(0.0, 1.85, 6.0), 0.0, -0.05)
+	_aim(player, base + Vector3(0.0, 1.9, 5.2), 0.0, -0.08)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("04_showcase_animals.png"))

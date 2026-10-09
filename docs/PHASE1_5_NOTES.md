@@ -35,6 +35,13 @@ Documented in `docs/ART_DIRECTION.md`:
 - Speckle noise removed from grass texture; clustered flower props instead  
 - Unshaded per-face vertex tint (tops lighter, sides darker) for gl_compatibility  
 
+## Second polish (review notes)
+
+- Grass retuned to sunny saturated mid/light green with soft texture + world-space patches (not muddy, not mint wash)  
+- Wide meadow fill via denser MultiMesh trees/flowers/bushes, knolls, pond, fence lines in frame  
+- Keepouts around playhouse pad + garden so fillers don’t eat shot framing  
+- Playhouse / fence wood: lighter warm caramel planks + logs  
+
 ## Gameplay preserved
 
 Block place/break, inventory, crafting, save — exercised by unit tests + smoke.

@@ -197,15 +197,16 @@ func _dress_meadow() -> void:
 		for edge in [Vector2i(bx, 5), Vector2i(bx, 58), Vector2i(5, bz), Vector2i(58, bz)]:
 			_grass_dirt_mound(edge.x, edge.y, 1 if i % 2 == 0 else 2)
 	# Interior knolls / terraces for midground silhouette
+	# Knolls away from playhouse pad (32-42) and garden (48,12)
 	_build_knoll(16, 18, 2, 1)
 	_build_knoll(50, 48, 2, 1)
 	_build_knoll(22, 48, 2, 1)
 	_build_knoll(12, 36, 2, 1)
 	_build_knoll(54, 36, 2, 1)
-	_build_knoll(40, 52, 2, 1)
 	_build_knoll(28, 14, 2, 1)
-	_build_knoll(44, 16, 2, 1)
 	_build_knoll(10, 24, 2, 1)
+	_build_knoll(56, 52, 2, 1)
+	_build_knoll(8, 50, 2, 1)
 	# Fence lines readable in wide meadow (midground + west edge)
 	for i in 9:
 		var fx := 10 + i * 2

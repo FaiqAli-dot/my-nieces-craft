@@ -94,7 +94,10 @@ func _place_hero_trees(props: Node3D) -> void:
 		["res://assets/models/props/tree.glb", Vector3(8, gy, 48), 1.8, 90.0],
 	]
 	for t in trees:
-		_spawn(t[0], props, t[1], t[2], t[3])
+		var p: Vector3 = t[1]
+		if _in_keepout(p.x, p.z):
+			continue
+		_spawn(t[0], props, p, t[2], t[3])
 
 
 func _place_rocks(props: Node3D) -> void:
@@ -112,7 +115,10 @@ func _place_rocks(props: Node3D) -> void:
 		["res://assets/models/nature/rock_tallA.glb", Vector3(34, gy, 12), 0.65, 40.0],
 	]
 	for r in rocks:
-		_spawn(r[0], props, r[1], r[2], r[3])
+		var rp: Vector3 = r[1]
+		if _in_keepout(rp.x, rp.z):
+			continue
+		_spawn(r[0], props, rp, r[2], r[3])
 
 
 func _place_flower_clusters(props: Node3D) -> void:
@@ -131,6 +137,8 @@ func _place_flower_clusters(props: Node3D) -> void:
 	]
 	for ci in centers.size():
 		var c: Vector3 = centers[ci]
+		if _in_keepout(c.x, c.z):
+			continue
 		for j in 4:
 			var ang: float = float(j) * TAU / 4.0 + float(ci) * 0.4
 			_spawn(kinds[(ci + j) % kinds.size()], props, c + Vector3(cos(ang) * 0.8, 0, sin(ang) * 0.8), 1.8, rad_to_deg(ang))
@@ -154,7 +162,10 @@ func _place_bushes(props: Node3D) -> void:
 	]
 	for i in bushes.size():
 		var b = bushes[i]
-		_spawn(b[0], props, b[1], b[2], float(i * 23))
+		var bp: Vector3 = b[1]
+		if _in_keepout(bp.x, bp.z):
+			continue
+		_spawn(b[0], props, bp, b[2], float(i * 23))
 
 
 func _place_pathside(props: Node3D) -> void:
@@ -181,6 +192,16 @@ func _place_multimesh_fill(props: Node3D) -> void:
 	_add_mm_trees(props, gy)
 	_add_mm_flowers(props, gy)
 	_add_mm_bushes(props, gy)
+
+
+func _in_keepout(px: float, pz: float) -> bool:
+	## Leave playhouse pad + animal/garden props clear; allow far tree line behind garden.
+	if px > 30.0 and px < 44.0 and pz > 30.0 and pz < 46.0:
+		return true
+	# Showcase garden around (48,12) — clear pen/nooks, keep distant z<=3 backdrop
+	if px > 42.0 and px < 56.0 and pz > 6.0 and pz < 24.0:
+		return true
+	return false
 
 
 func _mm_material(color: Color) -> StandardMaterial3D:
@@ -218,14 +239,18 @@ func _add_mm_trees(parent: Node3D, gy: float) -> void:
 		Vector2(22, 14), Vector2(36, 12), Vector2(48, 18), Vector2(14, 20),
 		Vector2(26, 28), Vector2(34, 34), Vector2(42, 40), Vector2(18, 36),
 		Vector2(10, 30), Vector2(54, 42), Vector2(28, 44), Vector2(38, 28),
+		# Far tree line behind garden (visible from animal pen)
+		Vector2(44, 2), Vector2(50, 2), Vector2(56, 3), Vector2(40, 3),
 	]
 	for h in hubs:
+		if _in_keepout(h.x, h.y):
+			continue
 		for k in 5:
 			var ang: float = float(k) * TAU / 5.0 + h.x * 0.1
 			var r: float = 1.2 + float(k) * 0.5
 			var px: float = h.x + cos(ang) * r
 			var pz: float = h.y + sin(ang) * r
-			if px > 32.0 and px < 42.0 and pz > 32.0 and pz < 42.0:
+			if _in_keepout(px, pz):
 				continue
 			positions.append(Vector3(px, gy, pz))
 	var mm_c := MultiMeshInstance3D.new()
@@ -235,9 +260,9 @@ func _add_mm_trees(parent: Node3D, gy: float) -> void:
 	mm1.mesh = canopy
 	mm1.instance_count = positions.size()
 	for i in positions.size():
-		var s := 0.85 + float(i % 4) * 0.12
+		var s := 0.75 + float(i % 4) * 0.10
 		var basis := Basis.from_euler(Vector3(0.0, float(i) * 0.7, 0.0)).scaled(Vector3(s, s, s))
-		var xf := Transform3D(basis, positions[i] + Vector3(0.0, 2.1, 0.0))
+		var xf := Transform3D(basis, positions[i] + Vector3(0.0, 2.0, 0.0))
 		mm1.set_instance_transform(i, xf)
 	mm_c.multimesh = mm1
 	mm_c.material_override = _mm_material(Color(0.34, 0.78, 0.38))
@@ -267,13 +292,17 @@ func _add_mm_flowers(parent: Node3D, gy: float) -> void:
 		Color(0.98, 0.82, 0.25),
 		Color(0.70, 0.42, 0.90),
 	]
-	var patches: Array[Vector2] = [
+	var patches_all: Array[Vector2] = [
 		Vector2(22, 26), Vector2(40, 24), Vector2(16, 42), Vector2(48, 44),
 		Vector2(28, 52), Vector2(50, 32), Vector2(12, 30), Vector2(36, 16),
 		Vector2(24, 12), Vector2(44, 50), Vector2(18, 18), Vector2(32, 20),
 		Vector2(28, 30), Vector2(42, 28), Vector2(20, 34), Vector2(38, 38),
 		Vector2(14, 38), Vector2(46, 22), Vector2(26, 40), Vector2(34, 46),
 	]
+	var patches: Array[Vector2] = []
+	for p in patches_all:
+		if not _in_keepout(p.x, p.y):
+			patches.append(p)
 	for ci in colors.size():
 		var mm_i := MultiMeshInstance3D.new()
 		mm_i.name = "MM_Flowers_%d" % ci
@@ -301,7 +330,7 @@ func _add_mm_bushes(parent: Node3D, gy: float) -> void:
 	bush.height = 1.0
 	bush.radial_segments = 8
 	bush.rings = 4
-	var spots: Array[Vector2] = [
+	var spots_all: Array[Vector2] = [
 		Vector2(15, 20), Vector2(25, 16), Vector2(45, 18), Vector2(55, 30),
 		Vector2(50, 50), Vector2(30, 55), Vector2(18, 54), Vector2(10, 44),
 		Vector2(42, 38), Vector2(8, 24), Vector2(58, 48), Vector2(34, 10),
@@ -309,6 +338,10 @@ func _add_mm_bushes(parent: Node3D, gy: float) -> void:
 		Vector2(16, 28), Vector2(24, 34), Vector2(40, 36), Vector2(32, 42),
 		Vector2(12, 34), Vector2(52, 34), Vector2(22, 46), Vector2(44, 44),
 	]
+	var spots: Array[Vector2] = []
+	for spt in spots_all:
+		if not _in_keepout(spt.x, spt.y):
+			spots.append(spt)
 	var mm_i := MultiMeshInstance3D.new()
 	mm_i.name = "MM_Bushes"
 	var mm := MultiMesh.new()

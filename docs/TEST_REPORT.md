@@ -45,6 +45,7 @@ godot --path . --resolution 1280x720 \
 ## Screenshots
 
 After shots: `/opt/cursor/artifacts/screenshots/phase1_5_after/`  
+Finals: `/opt/cursor/artifacts/screenshots/phase1_5_final/`  
 Before (Phase 1): `/opt/cursor/artifacts/screenshots/phase1_before/`  
 Comparisons: `/opt/cursor/artifacts/screenshots/comparisons/`
 
@@ -60,14 +61,23 @@ Comparisons: `/opt/cursor/artifacts/screenshots/comparisons/`
 | 08 | Touch controls |
 | 09 | Meadow path overview (new) |
 | 10 | Garden wide (new) |
+| 11 | Wide meadow (FG/MG/BG fill) |
+
+Phase 1 vs final side-by-sides:
+
+- `/opt/cursor/artifacts/screenshots/comparisons/compare_01_main_building_area.png`
+- `/opt/cursor/artifacts/screenshots/comparisons/compare_02_built_structure.png`
+- `/opt/cursor/artifacts/screenshots/comparisons/compare_03_showcase_environment.png`
+- `/opt/cursor/artifacts/screenshots/comparisons/compare_04_showcase_animals.png`
+- `/opt/cursor/artifacts/screenshots/comparisons/compare_11_wide_meadow.png`
 
 ## Honest visual judgment (rendered result)
 
-**Improved vs Phase 1:** colorful UI, winding path + flower beds + knolls, denser trees/flowers, Quaternius farm animals with readable colors, garden instead of floating-label museum, clouds + soft fog, clearer block icons.
+**Improved vs Phase 1:** sunny mid-green grass with soft patches; MultiMesh tree/flower/bush fill + knolls/pond/fence for wide depth; light warm playhouse planks; colorful UI; Quaternius pen animals; garden composition.
 
-**Still limited:** llvmpipe flattens shadows; meadow can still read bright/flat in some angles; animal FBX idle clips are not always present (bob fallback); world remains a small finite sandbox (by design).
+**Still limited:** llvmpipe flattens shadows; some meadow angles still simpler than a shipped title; animal FBX idle clips may fall back to bob; finite sandbox by design. Garden keepouts intentionally thin props inside the pen framing.
 
-Verdict: closer to a **small children’s voxel playground slice** than a grey tech demo, but not final art-complete.
+Verdict: closer to a **small children’s voxel playground slice** than Phase 1’s empty plane; not final art-complete.
 
 ## Manual checklist
 
