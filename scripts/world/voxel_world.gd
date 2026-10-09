@@ -170,20 +170,26 @@ func _dress_meadow() -> void:
 		_stamp_disk(24 + t, 28 - int(t * 0.3), 1, path_id)
 	# Golden sand play patch near spawn
 	_stamp_disk(28, 36, 3, sand_id)
-	# Clustered flower beds (midground interest)
+	# Clustered flower beds (midground / far interest for wide views)
 	_stamp_disk(22, 24, 2, flower_id)
 	_stamp_disk(40, 22, 2, flower_id)
 	_stamp_disk(18, 40, 1, flower_id)
 	_stamp_disk(48, 42, 2, flower_id)
 	_stamp_disk(14, 50, 2, flower_id)
 	_stamp_disk(52, 28, 1, flower_id)
-	# Dirt garden beds
+	_stamp_disk(30, 18, 2, flower_id)
+	_stamp_disk(16, 28, 1, flower_id)
+	_stamp_disk(44, 34, 1, flower_id)
+	_stamp_disk(36, 46, 2, flower_id)
+	# Dirt garden beds + warm ground patches
 	_stamp_disk(24, 30, 1, dirt_id)
 	_stamp_disk(38, 28, 1, dirt_id)
-	# Small pond (sand shore + glass water) — mid/far interest
-	_stamp_disk(26, 50, 3, sand_id)
-	_stamp_disk(26, 50, 2, glass_id)
-	set_block(26, GROUND_Y, 50, glass_id, false)
+	_stamp_disk(20, 36, 1, dirt_id)
+	_stamp_disk(46, 20, 1, sand_id)
+	# Pond in midground (visible from south-looking wide shots)
+	_stamp_disk(20, 20, 3, sand_id)
+	_stamp_disk(20, 20, 2, glass_id)
+	set_block(20, GROUND_Y, 20, glass_id, false)
 	# Layered edge terraces (grass on dirt) — no grey walls
 	for i in 8:
 		var bx := 8 + i * 6
@@ -197,12 +203,20 @@ func _dress_meadow() -> void:
 	_build_knoll(12, 36, 2, 1)
 	_build_knoll(54, 36, 2, 1)
 	_build_knoll(40, 52, 2, 1)
-	# Low fence line of wood posts (south-west meadow)
-	for i in 7:
-		var fx := 12 + i * 2
-		set_block(fx, GROUND_Y + 1, 54, wood_id, false)
+	_build_knoll(28, 14, 2, 1)
+	_build_knoll(44, 16, 2, 1)
+	_build_knoll(10, 24, 2, 1)
+	# Fence lines readable in wide meadow (midground + west edge)
+	for i in 9:
+		var fx := 10 + i * 2
+		set_block(fx, GROUND_Y + 1, 16, wood_id, false)
 		if i % 2 == 0:
-			set_block(fx, GROUND_Y + 2, 54, wood_id, false)
+			set_block(fx, GROUND_Y + 2, 16, wood_id, false)
+	for i in 6:
+		var fz := 18 + i * 2
+		set_block(10, GROUND_Y + 1, fz, wood_id, false)
+		if i % 2 == 0:
+			set_block(10, GROUND_Y + 2, fz, wood_id, false)
 	# Cozy starter build pad
 	for x in range(34, 40):
 		for z in range(34, 40):

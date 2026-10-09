@@ -106,6 +106,10 @@ func _place_rocks(props: Node3D) -> void:
 		["res://assets/models/nature/rock_smallA.glb", Vector3(48, gy, 46), 0.9, 40.0],
 		["res://assets/models/nature/rock_smallA.glb", Vector3(14, gy, 52), 0.85, 70.0],
 		["res://assets/models/nature/rock_tallA.glb", Vector3(54, gy, 22), 0.7, 25.0],
+		["res://assets/models/nature/rock_smallA.glb", Vector3(24, gy, 16), 0.9, 35.0],
+		["res://assets/models/nature/rock_smallA.glb", Vector3(18, gy, 22), 0.85, 55.0],
+		["res://assets/models/nature/rock_smallA.glb", Vector3(42, gy, 28), 0.8, 15.0],
+		["res://assets/models/nature/rock_tallA.glb", Vector3(34, gy, 12), 0.65, 40.0],
 	]
 	for r in rocks:
 		_spawn(r[0], props, r[1], r[2], r[3])
@@ -117,6 +121,8 @@ func _place_flower_clusters(props: Node3D) -> void:
 		Vector3(23, gy, 27), Vector3(40, gy, 22), Vector3(18, gy, 40),
 		Vector3(48, gy, 42), Vector3(14, gy, 50), Vector3(36, gy, 48),
 		Vector3(10, gy, 22), Vector3(54, gy, 40),
+		Vector3(28, gy, 16), Vector3(34, gy, 24), Vector3(16, gy, 32),
+		Vector3(46, gy, 36), Vector3(22, gy, 44), Vector3(38, gy, 40),
 	]
 	var kinds := [
 		"res://assets/models/nature/flower_redA.glb",
@@ -139,6 +145,10 @@ func _place_bushes(props: Node3D) -> void:
 		["res://assets/models/nature/plant_bushDetailed.glb", Vector3(40, gy, 46), 1.05],
 		["res://assets/models/nature/plant_bush.glb", Vector3(12, gy, 40), 1.1],
 		["res://assets/models/nature/plant_bushDetailed.glb", Vector3(50, gy, 50), 1.1],
+		["res://assets/models/nature/plant_bush.glb", Vector3(22, gy, 18), 1.15],
+		["res://assets/models/nature/plant_bushDetailed.glb", Vector3(32, gy, 22), 1.1],
+		["res://assets/models/nature/plant_bush.glb", Vector3(44, gy, 24), 1.05],
+		["res://assets/models/nature/plant_bushDetailed.glb", Vector3(18, gy, 34), 1.1],
 		["res://assets/models/nature/mushroom_red.glb", Vector3(19, gy, 34), 1.15],
 		["res://assets/models/nature/mushroom_red.glb", Vector3(43, gy, 36), 1.1],
 	]
@@ -204,11 +214,15 @@ func _add_mm_trees(parent: Node3D, gy: float) -> void:
 		Vector2(12, 48), Vector2(28, 54), Vector2(50, 24), Vector2(20, 40),
 		Vector2(26, 36), Vector2(44, 32), Vector2(18, 44), Vector2(36, 22),
 		Vector2(30, 16), Vector2(46, 46), Vector2(14, 26), Vector2(38, 54),
+		# Extra mid/far groves for wide meadow depth
+		Vector2(22, 14), Vector2(36, 12), Vector2(48, 18), Vector2(14, 20),
+		Vector2(26, 28), Vector2(34, 34), Vector2(42, 40), Vector2(18, 36),
+		Vector2(10, 30), Vector2(54, 42), Vector2(28, 44), Vector2(38, 28),
 	]
 	for h in hubs:
-		for k in 4:
-			var ang: float = float(k) * TAU / 4.0 + h.x * 0.1
-			var r: float = 1.4 + float(k) * 0.55
+		for k in 5:
+			var ang: float = float(k) * TAU / 5.0 + h.x * 0.1
+			var r: float = 1.2 + float(k) * 0.5
 			var px: float = h.x + cos(ang) * r
 			var pz: float = h.y + sin(ang) * r
 			if px > 32.0 and px < 42.0 and pz > 32.0 and pz < 42.0:
@@ -226,7 +240,7 @@ func _add_mm_trees(parent: Node3D, gy: float) -> void:
 		var xf := Transform3D(basis, positions[i] + Vector3(0.0, 2.1, 0.0))
 		mm1.set_instance_transform(i, xf)
 	mm_c.multimesh = mm1
-	mm_c.material_override = _mm_material(Color(0.28, 0.72, 0.36))
+	mm_c.material_override = _mm_material(Color(0.34, 0.78, 0.38))
 	parent.add_child(mm_c)
 	var mm_t := MultiMeshInstance3D.new()
 	mm_t.name = "MM_TreeTrunks"
@@ -256,7 +270,9 @@ func _add_mm_flowers(parent: Node3D, gy: float) -> void:
 	var patches: Array[Vector2] = [
 		Vector2(22, 26), Vector2(40, 24), Vector2(16, 42), Vector2(48, 44),
 		Vector2(28, 52), Vector2(50, 32), Vector2(12, 30), Vector2(36, 16),
-		Vector2(24, 12), Vector2(44, 50),
+		Vector2(24, 12), Vector2(44, 50), Vector2(18, 18), Vector2(32, 20),
+		Vector2(28, 30), Vector2(42, 28), Vector2(20, 34), Vector2(38, 38),
+		Vector2(14, 38), Vector2(46, 22), Vector2(26, 40), Vector2(34, 46),
 	]
 	for ci in colors.size():
 		var mm_i := MultiMeshInstance3D.new()
@@ -264,12 +280,12 @@ func _add_mm_flowers(parent: Node3D, gy: float) -> void:
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
 		mm.mesh = bloom
-		mm.instance_count = patches.size() * 5
+		mm.instance_count = patches.size() * 6
 		var idx := 0
 		for p in patches:
-			for k in 5:
-				var ang: float = float(k) * TAU / 5.0 + float(ci)
-				var r: float = 0.5 + float(k) * 0.25
+			for k in 6:
+				var ang: float = float(k) * TAU / 6.0 + float(ci)
+				var r: float = 0.45 + float(k) * 0.22
 				var xf := Transform3D.IDENTITY
 				xf.origin = Vector3(p.x + cos(ang) * r, gy + 0.25, p.y + sin(ang) * r)
 				mm.set_instance_transform(idx, xf)
@@ -289,6 +305,9 @@ func _add_mm_bushes(parent: Node3D, gy: float) -> void:
 		Vector2(15, 20), Vector2(25, 16), Vector2(45, 18), Vector2(55, 30),
 		Vector2(50, 50), Vector2(30, 55), Vector2(18, 54), Vector2(10, 44),
 		Vector2(42, 38), Vector2(8, 24), Vector2(58, 48), Vector2(34, 10),
+		Vector2(20, 14), Vector2(28, 22), Vector2(36, 18), Vector2(48, 26),
+		Vector2(16, 28), Vector2(24, 34), Vector2(40, 36), Vector2(32, 42),
+		Vector2(12, 34), Vector2(52, 34), Vector2(22, 46), Vector2(44, 44),
 	]
 	var mm_i := MultiMeshInstance3D.new()
 	mm_i.name = "MM_Bushes"
@@ -302,7 +321,7 @@ func _add_mm_bushes(parent: Node3D, gy: float) -> void:
 		var xf := Transform3D(basis, Vector3(spots[i].x, gy + 0.35, spots[i].y))
 		mm.set_instance_transform(i, xf)
 	mm_i.multimesh = mm
-	mm_i.material_override = _mm_material(Color(0.28, 0.70, 0.34))
+	mm_i.material_override = _mm_material(Color(0.32, 0.76, 0.36))
 	parent.add_child(mm_i)
 
 

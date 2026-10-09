@@ -119,6 +119,13 @@ func rebuild_mesh() -> void:
 						Vector2(u0, v0),
 					]
 					var shade: Color = f["shade"]
+					# Gentle world-space grass patches (cheerful tonal variation, not speckles)
+					if str(f["key"]) == "top" and BlockDB.get_block_name(id) == "grass":
+						var wx := chunk_pos.x * SIZE + x
+						var wz := chunk_pos.z * SIZE + z
+						var patch := 0.94 + 0.10 * sin(float(wx) * 0.31) * cos(float(wz) * 0.27)
+						patch += 0.04 * sin(float(wx + wz) * 0.17)
+						shade = Color(shade.r * patch, shade.g * minf(patch * 1.02, 1.08), shade.b * patch)
 					var order := [0, 1, 2, 0, 2, 3]
 					for oi in order:
 						st.set_normal(f["n"])

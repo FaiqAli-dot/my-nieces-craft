@@ -118,8 +118,8 @@ func _capture_all() -> void:
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("10_garden_wide.png"))
 
-	# New: wide meadow — FG sand/path, MG house+trees+flowers, BG pond/fence/knolls
-	_aim(player, Vector3(30, 8.8, 52), 0.05, -0.28)
+	# Wide meadow — FG path/sand, MG house+trees+flowers+fence, BG pond/knolls/tree line
+	_aim(player, Vector3(34, 9.2, 50), -0.35, -0.30)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("11_wide_meadow.png"))
