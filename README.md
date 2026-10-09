@@ -10,27 +10,46 @@ Kid-friendly 3D voxel sandbox prototype (Godot 4.3 / GDScript). Validates art di
 
 ## Launch
 
+Requires **Godot 4.3+**.
+
 ```bash
 godot --path .
 # or open the project folder in the Godot editor and press Play
 ```
 
+On headless/CI displays (Xvfb), prefer OpenGL compatibility (Vulkan often lacks `VK_KHR_surface`):
+
+```bash
+xvfb-run -a godot --path . \
+  --rendering-method gl_compatibility --rendering-driver opengl3
+```
+
 Headless tests:
 
 ```bash
-godot --headless --path . -s res://tests/run_tests.gd
+godot --headless --path . res://tests/test_runner.tscn
 ```
 
 Smoke run (auto quit):
 
 ```bash
-COZY_SMOKE=1 COZY_SMOKE_QUIT=1 godot --path . --quit-after 8
+COZY_SMOKE=1 COZY_SMOKE_QUIT=1 xvfb-run -a godot --path . \
+  --rendering-method gl_compatibility --rendering-driver opengl3
 ```
 
 Force on-screen touch controls (desktop):
 
 ```bash
 COZY_FORCE_TOUCH=1 godot --path .
+```
+
+Screenshots:
+
+```bash
+COZY_SCREENSHOTS=1 COZY_FORCE_TOUCH=1 COZY_SMOKE_QUIT=1 \
+COZY_SHOT_DIR=/tmp/cozy-shots \
+  xvfb-run -a godot --path . --resolution 1280x720 \
+    --rendering-method gl_compatibility --rendering-driver opengl3
 ```
 
 ## Controls

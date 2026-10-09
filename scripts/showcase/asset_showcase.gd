@@ -53,20 +53,24 @@ func _add_platform(origin: Vector3) -> void:
 func _add_sign(pos: Vector3, text: String) -> void:
 	var label := Label3D.new()
 	label.text = text
-	label.font_size = 48
+	label.font_size = 36
+	label.pixel_size = 0.01
 	label.modulate = Color(0.15, 0.25, 0.45)
 	label.position = pos
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.outline_size = 8
 	add_child(label)
 
 
 func _add_label(pos: Vector3, text: String) -> void:
 	var label := Label3D.new()
 	label.text = text
-	label.font_size = 28
+	label.font_size = 20
+	label.pixel_size = 0.01
 	label.modulate = Color(0.25, 0.35, 0.5)
 	label.position = pos
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.outline_size = 6
 	add_child(label)
 
 
@@ -83,6 +87,7 @@ func _spawn_model(path: String, origin: Vector3, scale_factor: float = 1.0, y_of
 	node.position = origin + Vector3(0, y_offset, 0)
 	node.scale = Vector3.ONE * scale_factor
 	add_child(node)
+	_fix_kenney_materials(node)
 	# Try to play idle / first animation if present
 	var ap := _find_anim(node)
 	if ap:
@@ -96,6 +101,32 @@ func _spawn_model(path: String, origin: Vector3, scale_factor: float = 1.0, y_of
 					break
 			ap.play(preferred if preferred != "" else anims[0])
 	return node
+
+
+func _fix_kenney_materials(node: Node) -> void:
+	# Kenney GLBs often import with metallicFactor=1, which washes out under daylight.
+	if node is GeometryInstance3D:
+		var gi := node as GeometryInstance3D
+		if gi is MeshInstance3D:
+			var mi := gi as MeshInstance3D
+			if mi.mesh != null:
+				for si in mi.mesh.get_surface_count():
+					var mat: Material = mi.get_active_material(si)
+					if mat == null:
+						mat = mi.mesh.surface_get_material(si)
+					var sm := StandardMaterial3D.new()
+					if mat is StandardMaterial3D:
+						var src := mat as StandardMaterial3D
+						sm.albedo_color = src.albedo_color
+						sm.albedo_texture = src.albedo_texture
+						sm.cull_mode = src.cull_mode
+					else:
+						sm.albedo_color = Color(0.45, 0.75, 0.4)
+					sm.metallic = 0.0
+					sm.roughness = 0.85
+					mi.set_surface_override_material(si, sm)
+	for c in node.get_children():
+		_fix_kenney_materials(c)
 
 
 func _find_anim(node: Node) -> AnimationPlayer:
@@ -126,7 +157,7 @@ func _section_environment(origin: Vector3) -> void:
 
 func _section_animals(origin: Vector3) -> void:
 	# Fox has animation; Duck is static; Bear is stuffed toy from furniture kit
-	_spawn_model("res://assets/models/animals/Fox.glb", origin + Vector3(-2.5, 0, 0), 0.02)
+	_spawn_model("res://assets/models/animals/Fox.glb", origin + Vector3(-2.5, 0, 0), 0.025)
 	_add_label(origin + Vector3(-2.5, 1.5, 1.4), "Fox.glb\nKhronos Sample (animated)")
 	_spawn_model("res://assets/models/animals/Duck.glb", origin + Vector3(0, 0, 0), 0.8)
 	_add_label(origin + Vector3(0, 1.5, 1.4), "Duck.glb\nKhronos Sample")

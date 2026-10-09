@@ -76,6 +76,24 @@ func _scatter_props() -> void:
 		node.position = p[1]
 		node.scale = Vector3.ONE * float(p[2])
 		root.add_child(node)
+		_fix_kenney_materials(node)
+
+
+func _fix_kenney_materials(node: Node) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			for si in mi.mesh.get_surface_count():
+				var mat: Material = mi.get_active_material(si)
+				if mat == null:
+					mat = mi.mesh.surface_get_material(si)
+				if mat is StandardMaterial3D:
+					var sm := (mat as StandardMaterial3D).duplicate() as StandardMaterial3D
+					sm.metallic = 0.0
+					sm.roughness = maxf(sm.roughness, 0.75)
+					mi.set_surface_override_material(si, sm)
+	for c in node.get_children():
+		_fix_kenney_materials(c)
 
 
 func _run_smoke() -> void:
