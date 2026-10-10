@@ -33,6 +33,14 @@ func _ready() -> void:
 		var face_shots := Node.new()
 		face_shots.set_script(load("res://scripts/devtools/face_winding_shots.gd"))
 		add_child(face_shots)
+	if OS.get_environment("COZY_PHASE16_SHOTS") == "1":
+		var p16 := Node.new()
+		p16.set_script(load("res://scripts/devtools/phase16_shots.gd"))
+		add_child(p16)
+	if OS.get_environment("COZY_PHASE16_DEMO") == "1":
+		var demo := Node.new()
+		demo.set_script(load("res://scripts/devtools/phase16_demo_driver.gd"))
+		add_child(demo)
 	if OS.get_environment("COZY_SMOKE") == "1":
 		await get_tree().create_timer(1.5).timeout
 		_run_smoke()

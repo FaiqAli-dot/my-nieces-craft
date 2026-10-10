@@ -63,6 +63,10 @@ func _ready() -> void:
 		var tr := Node.new()
 		tr.set_script(load("res://scripts/devtools/house_transition_regression.gd"))
 		add_child(tr)
+	if OS.get_environment("COZY_PHASE16_SHOTS") == "1":
+		var p16 := Node.new()
+		p16.set_script(load("res://scripts/devtools/phase16_shots.gd"))
+		add_child(p16)
 	if OS.get_environment("COZY_SCREENSHOTS") == "1":
 		await get_tree().create_timer(1.2).timeout
 		await _run_shot_harness()
