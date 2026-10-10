@@ -87,7 +87,7 @@ COZY_SMOKE=1 COZY_SMOKE_QUIT=1 xvfb-run -a godot --path . \
 | Inventory | I / Tab | Bag |
 | Craft | C | Craft |
 | My House | Menu → My House | Menu → My House |
-| Creative flight | F toggle; Space up; Ctrl/Shift down | Fly / Land; Up / Down while flying |
+| Creative flight | F toggle; Space up; Ctrl/Shift down | Fly/Land beside Jump (right); Up/Down while flying |
 | Creative mode | G or top-bar button | Top-bar Creative chip |
 
 Only one of Bag / Craft / Menu is open at a time (opening one closes the others).

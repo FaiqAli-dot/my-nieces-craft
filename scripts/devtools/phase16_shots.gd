@@ -67,7 +67,16 @@ func _meadow_shots(main: Node, out: String) -> void:
 	ui._layout_fly_controls()
 	await get_tree().process_frame
 	await _shot(out.path_join("after_meadow_flight_active.png"))
-	# Exclusive menus
+	# Phone + tablet flight layouts (safe insets)
+	await _flight_size_shot(ui, out, "phone_1792x828", Vector2i(1792, 828), "48,0,48,21")
+	await _flight_size_shot(ui, out, "phone_2532x1170", Vector2i(2532, 1170), "50,0,50,24")
+	await _flight_size_shot(ui, out, "tablet_2048x1536", Vector2i(2048, 1536), "24,20,24,24")
+	# Exclusive menus (restore a common desktop-ish size first)
+	get_window().size = Vector2i(1280, 720)
+	OS.set_environment("COZY_SAFE_INSET", "12,8,12,12")
+	await get_tree().process_frame
+	ui._layout_fly_controls()
+	GameState.set_flying(false)
 	ui.toggle_inventory()
 	await get_tree().process_frame
 	await _shot(out.path_join("after_meadow_bag_only.png"))
@@ -76,6 +85,25 @@ func _meadow_shots(main: Node, out: String) -> void:
 	await _shot(out.path_join("after_meadow_craft_replaces_bag.png"))
 	ui.panels.close_all()
 	print("[PHASE16] meadow shots done")
+
+
+func _flight_size_shot(ui: GameUi, out: String, tag: String, size: Vector2i, inset: String) -> void:
+	get_window().size = size
+	OS.set_environment("COZY_SAFE_INSET", inset)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	ui._detect_touch()
+	if ui.touch_controls and ui.touch_controls.has_method("_on_viewport_resized"):
+		ui.touch_controls._on_viewport_resized()
+	ui._layout_hotbar()
+	GameState.set_flying(false)
+	ui._layout_fly_controls()
+	await get_tree().process_frame
+	await _shot(out.path_join("flight_off_%s.png" % tag))
+	GameState.set_flying(true)
+	ui._layout_fly_controls()
+	await get_tree().process_frame
+	await _shot(out.path_join("flight_on_%s.png" % tag))
 
 
 func _shot(path: String) -> void:

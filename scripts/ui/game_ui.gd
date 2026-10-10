@@ -276,6 +276,10 @@ func _build_ui() -> void:
 
 func _layout_hotbar() -> void:
 	_layout_top_bar()
+	ui_layout_hotbar_for_flight()
+
+
+func ui_layout_hotbar_for_flight() -> void:
 	if hotbar_tray == null:
 		return
 	var vp := get_viewport().get_visible_rect().size
@@ -285,14 +289,14 @@ func _layout_hotbar() -> void:
 	var slot := (64.0 if phone_like else 72.0) * scale
 	hotbar_tray.set_slot_size(slot)
 	var width := Inventory.HOTBAR_SIZE * (slot + 8.0) + 36.0
+	# On wide tablets leave side gutters so the bar does not invade Jump/Fly.
+	var max_w := vp.x * (0.52 if phone_like else 0.42)
+	width = minf(width, max_w)
 	var height := slot + 28.0
 	# Lift above home-indicator / action overlap; stay between joystick and actions.
 	var bottom := 18.0
-	var safe_env := OS.get_environment("COZY_SAFE_INSET")
-	if safe_env != "":
-		var parts := safe_env.split(",")
-		if parts.size() == 4:
-			bottom = maxf(bottom, float(parts[3]) + 8.0)
+	var inset := _safe_insets()
+	bottom = maxf(bottom, inset.w + 8.0)
 	hotbar_tray.offset_left = -width * 0.5
 	hotbar_tray.offset_right = width * 0.5
 	hotbar_tray.offset_top = -height - bottom
@@ -502,7 +506,7 @@ func _build_fly_controls() -> void:
 	_fly_cluster = Control.new()
 	_fly_cluster.name = "FlyControls"
 	_fly_cluster.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_fly_cluster.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_fly_cluster.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root.add_child(_fly_cluster)
 	fly_btn = ActionButton.new()
 	fly_btn.show_label = true
@@ -522,45 +526,134 @@ func _build_fly_controls() -> void:
 		_fly_cluster.add_child(b)
 
 
+func _safe_insets() -> Vector4:
+	## left, top, right, bottom — matches TouchControls COZY_SAFE_INSET convention.
+	var inset := Vector4(12, 8, 12, 12)
+	var env := OS.get_environment("COZY_SAFE_INSET")
+	if env != "":
+		var parts := env.split(",")
+		if parts.size() == 4:
+			return Vector4(float(parts[0]), float(parts[1]), float(parts[2]), float(parts[3]))
+	return inset
+
+
 func _layout_fly_controls() -> void:
 	if _fly_cluster == null or fly_btn == null:
 		return
 	var show_touch := touch_layer != null and touch_layer.visible
 	var creative := GameState.creative_mode
 	_fly_cluster.visible = show_touch and creative
+	var actions: TouchActionCluster = touch_controls.actions if touch_controls else null
 	if not _fly_cluster.visible:
+		if actions and actions.has_method("set_flight_column_inset"):
+			actions.set_flight_column_inset(0.0)
 		return
+	# Refresh touch layout first so Jump/joystick rects are current.
+	if touch_controls and touch_controls.has_method("_on_viewport_resized"):
+		touch_controls._on_viewport_resized()
+	actions = touch_controls.actions if touch_controls else null
+	if actions == null or actions.jump_btn == null:
+		return
+
 	var vp := get_viewport().get_visible_rect().size
-	var scale := clampf(minf(vp.x, vp.y) / 828.0, 0.85, 1.45)
+	var short_side := minf(vp.x, vp.y)
+	var scale := clampf(short_side / 828.0, 0.85, 1.45)
 	var sz := 72.0 * scale
 	var gap := 8.0 * scale
 	var flying := GameState.flying
+	var inset := _safe_insets()
+	var phone_like := short_side < 900.0 or (vp.x / maxf(vp.y, 1.0) > 1.8)
+	# Always reserve a column left of Jump for Fly (and Up/Down while flying).
+	var reserve := sz + gap
+	if actions.has_method("set_flight_column_inset"):
+		actions.set_flight_column_inset(reserve)
+	var base_aw := (230.0 if phone_like else 270.0) * scale
+	var cluster_w := base_aw + reserve
+	var ah := (260.0 if phone_like else 310.0) * scale
+	# Extra height when flying so Land above Up stays inside the cluster band.
+	if flying:
+		ah = maxf(ah, sz * 3.0 + gap * 2.0 + 24.0 * scale)
+	# Keep the whole right cluster (Jump + flight column) above the hotbar.
+	ui_layout_hotbar_for_flight()
+	var bottom_clear := 4.0 + inset.w
+	if hotbar_tray and hotbar_tray.visible:
+		var hot_r: Rect2 = hotbar_tray.get_global_rect()
+		# Distance from viewport bottom to hotbar top, plus a kid-friendly gap.
+		bottom_clear = maxf(bottom_clear, (vp.y - hot_r.position.y) + 12.0 * scale)
+	# Down sits below Jump; reserve that overhang so it clears the hotbar.
+	if flying:
+		var jump_h := actions.primary_size
+		var column_h := sz * 2.0 + gap
+		var overhang := maxf(0.0, column_h - jump_h)
+		bottom_clear += overhang + 8.0 * scale
+	actions.custom_minimum_size = Vector2(cluster_w, ah)
+	actions.anchor_left = 1.0
+	actions.anchor_top = 1.0
+	actions.anchor_right = 1.0
+	actions.anchor_bottom = 1.0
+	actions.offset_right = -4.0 - inset.z
+	actions.offset_bottom = -bottom_clear
+	actions.offset_left = actions.offset_right - cluster_w
+	actions.offset_top = actions.offset_bottom - ah
+	if actions.has_method("_layout"):
+		actions._layout()
+
 	fly_up_btn.visible = flying
 	fly_down_btn.visible = flying
-	var count := 3 if flying else 1
-	var total_h := sz * float(count) + gap * float(count - 1)
-	_fly_cluster.anchor_left = 0.0
-	_fly_cluster.anchor_top = 1.0
-	_fly_cluster.anchor_right = 0.0
-	_fly_cluster.anchor_bottom = 1.0
-	# Sit above the joystick so kids can reach Fly / Up / Down without covering MOVE.
-	_fly_cluster.offset_left = 16.0 * scale
-	_fly_cluster.offset_right = 16.0 * scale + sz
-	_fly_cluster.offset_top = -total_h - 190.0 * scale
-	_fly_cluster.offset_bottom = -190.0 * scale
-	var y := 0.0
-	for btn in [fly_up_btn, fly_btn, fly_down_btn]:
+	_size_fly_btn(fly_btn, sz)
+	_size_fly_btn(fly_up_btn, sz)
+	_size_fly_btn(fly_down_btn, sz)
+
+	var jump_r := actions.jump_btn.get_global_rect()
+	# Column immediately left of Jump — Fly/Land always; Up/Down while flying.
+	var col_x := jump_r.position.x - gap - sz
+	if flying:
+		var up_y := jump_r.position.y
+		var down_y := up_y + sz + gap
+		fly_up_btn.global_position = Vector2(col_x, up_y)
+		fly_down_btn.global_position = Vector2(col_x, down_y)
+		# Land toggle above Up — green on-state.
+		fly_btn.global_position = Vector2(col_x, up_y - gap - sz)
+	else:
+		# Fly toggle beside Jump (sky off-state) — never on the left screen edge.
+		fly_btn.global_position = Vector2(col_x, jump_r.position.y + (jump_r.size.y - sz) * 0.5)
+
+	# Keep every flight control inside the safe rectangle.
+	var safe := Rect2(inset.x, inset.y, vp.x - inset.x - inset.z, vp.y - inset.y - inset.w)
+	for btn in [fly_btn, fly_up_btn, fly_down_btn]:
 		if btn == null or not btn.visible:
 			continue
-		btn.button_size = sz
-		btn.custom_minimum_size = Vector2(sz, sz)
-		btn.size = Vector2(sz, sz)
-		btn.position = Vector2(0, y)
+		var r: Rect2 = btn.get_global_rect()
+		var pos: Vector2 = r.position
+		pos.x = clampf(pos.x, safe.position.x, safe.end.x - r.size.x)
+		pos.y = clampf(pos.y, safe.position.y, safe.end.y - r.size.y)
+		btn.global_position = pos
 		if btn.has_method("_layout_children"):
 			btn._layout_children()
 		if btn.has_method("_apply_style"):
 			btn._apply_style(false)
-		y += sz + gap
+
+
+func _size_fly_btn(btn: ActionButton, sz: float) -> void:
+	if btn == null:
+		return
+	btn.button_size = sz
+	btn.custom_minimum_size = Vector2(sz, sz)
+	btn.size = Vector2(sz, sz)
+
+
+func flight_control_rects() -> Dictionary:
+	## Global rects for layout regression (empty when flight HUD hidden).
+	var out := {}
+	if _fly_cluster == null or not _fly_cluster.visible:
+		return out
+	if fly_btn and fly_btn.visible:
+		out["fly"] = fly_btn.get_global_rect()
+	if fly_up_btn and fly_up_btn.visible:
+		out["up"] = fly_up_btn.get_global_rect()
+	if fly_down_btn and fly_down_btn.visible:
+		out["down"] = fly_down_btn.get_global_rect()
+	return out
 
 
 func _on_creative(enabled: bool) -> void:
@@ -576,6 +669,7 @@ func _on_creative(enabled: bool) -> void:
 
 func _on_flight(enabled: bool) -> void:
 	if fly_btn:
+		# Obvious on/off: green Land vs sky Fly + label swap.
 		fly_btn.configure(
 			"FlyButton",
 			COL_GREEN if enabled else COL_SKY,

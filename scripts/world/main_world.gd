@@ -41,6 +41,10 @@ func _ready() -> void:
 		var demo := Node.new()
 		demo.set_script(load("res://scripts/devtools/phase16_demo_driver.gd"))
 		add_child(demo)
+	if OS.get_environment("COZY_FLIGHT_LAYOUT_TEST") == "1":
+		var flight_layout := Node.new()
+		flight_layout.set_script(load("res://scripts/devtools/flight_layout_regression.gd"))
+		add_child(flight_layout)
 	if OS.get_environment("COZY_SMOKE") == "1":
 		await get_tree().create_timer(1.5).timeout
 		_run_smoke()

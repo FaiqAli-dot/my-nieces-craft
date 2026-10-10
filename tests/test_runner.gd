@@ -26,6 +26,7 @@ func _ready() -> void:
 	_test_creative_flight_gates()
 	await _test_house_floor_collision()
 	_test_player_proportions()
+	await _test_flight_cluster_inset_api()
 	await _test_world_serialize()
 	await _test_chunk_mesh_update()
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
@@ -491,6 +492,17 @@ func _test_player_proportions() -> void:
 	_assert(is_equal_approx(PlayerController.CAPSULE_HEIGHT, 1.8), "FP capsule height 1.8")
 	_assert(is_equal_approx(ThirdPersonController.CAPSULE_HEIGHT, 1.8), "TP capsule height 1.8")
 	_assert(ThirdPersonController.MODEL_SCALE >= 0.85, "avatar scale raised from 0.62")
+
+
+func _test_flight_cluster_inset_api() -> void:
+	var cluster := TouchActionCluster.new()
+	add_child(cluster)
+	await get_tree().process_frame
+	_assert(cluster.flight_column_inset == 0.0, "flight inset starts 0")
+	cluster.set_flight_column_inset(80.0)
+	_assert(is_equal_approx(cluster.flight_column_inset, 80.0), "flight inset applied")
+	cluster.queue_free()
+	await get_tree().process_frame
 
 
 func _make_world() -> VoxelWorld:
