@@ -18,8 +18,24 @@ const TURN_SPEED := 10.0
 const MODEL_SCALE := 0.9
 const CAPSULE_HEIGHT := 1.8
 const CAPSULE_RADIUS := 0.38
+## Kenney / UnityGLTF characters face +Z; Godot forward is −Z. Yaw from
+## `visual_yaw_for_move_dir` maps travel direction onto that +Z mesh axis.
 
 signal moved(pos: Vector3, yaw: float, moving: bool)
+
+
+## Yaw that aims the avatar's visual forward (+Z mesh) along `direction` (XZ).
+static func visual_yaw_for_move_dir(direction: Vector3) -> float:
+	var flat := Vector3(direction.x, 0.0, direction.z)
+	if flat.length_squared() < 0.0001:
+		return 0.0
+	flat = flat.normalized()
+	return atan2(flat.x, flat.z)
+
+
+## World-space unit vector for the Kenney mesh forward at the given yaw.
+static func visual_forward_from_yaw(yaw: float) -> Vector3:
+	return Basis(Vector3.UP, yaw) * Vector3(0.0, 0.0, 1.0)
 
 @export var character_scene: String = "res://assets/models/characters/character-male-a.glb"
 @export var enable_run: bool = true
@@ -154,7 +170,8 @@ func _physics_process(delta: float) -> void:
 	if direction != Vector3.ZERO:
 		velocity.x = direction.x * speed
 		velocity.z = direction.z * speed
-		var target_yaw := atan2(-direction.x, -direction.z)
+		# Face travel direction (Kenney +Z), not camera-forward alone.
+		var target_yaw := visual_yaw_for_move_dir(direction)
 		model_root.rotation.y = lerp_angle(model_root.rotation.y, target_yaw, clampf(TURN_SPEED * delta, 0, 1))
 		_play_anim("sprint" if running else "walk")
 		_was_moving = true
@@ -170,13 +187,22 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	# Soft rescue if somehow below the floor slab.
 	if global_position.y < -2.0:
-		global_position = Vector3(6.0, 0.0, 9.0)
+		global_position = spawn_rescue_position()
 		velocity = Vector3.ZERO
 
 	var now := Time.get_ticks_msec() / 1000.0
 	if now - _last_net_t >= 1.0 / 12.0:
 		_last_net_t = now
 		moved.emit(global_position, model_root.rotation.y, direction != Vector3.ZERO)
+
+
+func spawn_rescue_position() -> Vector3:
+	return Vector3(6.0, 0.0, 9.0)
+
+
+## Snap facing immediately (tests / harnesses) so visual forward matches `direction`.
+func face_direction(direction: Vector3) -> void:
+	model_root.rotation.y = visual_yaw_for_move_dir(direction)
 
 
 func set_touch_move(v: Vector2) -> void:

@@ -1,8 +1,28 @@
 extends RefCounted
 class_name HouseLayout
 ## Persistent house record + furniture instances.
+##
+## Size tiers (Small / Medium / Large) are a kid-friendly step design — one tap
+## grows or shrinks the whole room on a fixed grid, with server validation so
+## furniture is never orphaned. Freeform wall editing is deferred.
 
-const SCHEMA_VERSION := 1
+const SCHEMA_VERSION := 2
+const SIZE_SMALL := "small"
+const SIZE_MEDIUM := "medium"
+const SIZE_LARGE := "large"
+const SIZE_ORDER: PackedStringArray = [SIZE_SMALL, SIZE_MEDIUM, SIZE_LARGE]
+const SIZE_CELLS := {
+	SIZE_SMALL: 12,
+	SIZE_MEDIUM: 16,
+	SIZE_LARGE: 20,
+}
+const SIZE_LABELS := {
+	SIZE_SMALL: "Small",
+	SIZE_MEDIUM: "Medium",
+	SIZE_LARGE: "Large",
+}
+
+const DEFAULT_SIZE_TIER := SIZE_SMALL
 const DEFAULT_ROOM_MIN := Vector2i(0, 0)
 const DEFAULT_ROOM_MAX := Vector2i(11, 11) # 12x12 buildable cells
 const DEFAULT_CAPACITY := 8
@@ -21,6 +41,7 @@ var room_min: Vector2i = DEFAULT_ROOM_MIN
 var room_max: Vector2i = DEFAULT_ROOM_MAX
 var capacity: int = DEFAULT_CAPACITY
 var display_name: String = "Cozy House"
+var size_tier: String = DEFAULT_SIZE_TIER
 
 
 func to_dict() -> Dictionary:
@@ -40,6 +61,7 @@ func to_dict() -> Dictionary:
 		"room_max": [room_max.x, room_max.y],
 		"capacity": capacity,
 		"display_name": display_name,
+		"size_tier": size_tier,
 	}
 
 
@@ -51,6 +73,34 @@ func invite_is_valid(now_unix: int = -1) -> bool:
 		if now >= invite_expires_at:
 			return false
 	return true
+
+
+static func cells_for_tier(tier: String) -> int:
+	return int(SIZE_CELLS.get(normalize_size_tier(tier), SIZE_CELLS[DEFAULT_SIZE_TIER]))
+
+
+static func label_for_tier(tier: String) -> String:
+	var t := normalize_size_tier(tier)
+	return str(SIZE_LABELS.get(t, SIZE_LABELS[DEFAULT_SIZE_TIER]))
+
+
+static func normalize_size_tier(tier: String) -> String:
+	var t := tier.strip_edges().to_lower()
+	if SIZE_CELLS.has(t):
+		return t
+	return DEFAULT_SIZE_TIER
+
+
+static func tier_for_room_max(rmax: Vector2i) -> String:
+	var cells := maxi(rmax.x, rmax.y) + 1
+	var best := DEFAULT_SIZE_TIER
+	var best_diff := 999
+	for t in SIZE_ORDER:
+		var d: int = absi(int(SIZE_CELLS[t]) - cells)
+		if d < best_diff:
+			best_diff = d
+			best = t
+	return best
 
 
 static func from_dict(data: Dictionary) -> HouseLayout:
@@ -77,8 +127,71 @@ static func from_dict(data: Dictionary) -> HouseLayout:
 		h.room_max = Vector2i(int(rmax[0]), int(rmax[1]))
 	h.capacity = int(data.get("capacity", DEFAULT_CAPACITY))
 	h.display_name = str(data.get("display_name", "Cozy House"))
+	# Schema migration: infer size_tier from room bounds when missing (v1 saves).
+	if data.has("size_tier"):
+		h.size_tier = normalize_size_tier(str(data.get("size_tier", DEFAULT_SIZE_TIER)))
+	else:
+		h.size_tier = tier_for_room_max(h.room_max)
+	h.apply_size_tier(h.size_tier, false)
 	h._sanitize_furniture()
 	return h
+
+
+func apply_size_tier(tier: String, rewrite_bounds: bool = true) -> void:
+	size_tier = normalize_size_tier(tier)
+	if rewrite_bounds:
+		var cells := cells_for_tier(size_tier)
+		room_min = Vector2i(0, 0)
+		room_max = Vector2i(cells - 1, cells - 1)
+
+
+func furniture_max_cell() -> Vector2i:
+	## Inclusive max cell occupied by any furniture footprint corner.
+	var max_c := Vector2i(-1, -1)
+	for inst in furniture:
+		if typeof(inst) != TYPE_DICTIONARY:
+			continue
+		var def_id := str(inst.get("def_id", ""))
+		if not FurnitureDB.has_id(def_id):
+			continue
+		var cell := Vector2i(int(inst.get("cell_x", 0)), int(inst.get("cell_z", 0)))
+		var rot := int(inst.get("rotation", 0))
+		var fp := FurnitureGrid.rotate_footprint(FurnitureDB.footprint(def_id), rot)
+		max_c.x = maxi(max_c.x, cell.x + fp.x - 1)
+		max_c.y = maxi(max_c.y, cell.y + fp.y - 1)
+	return max_c
+
+
+func can_apply_size_tier(tier: String) -> String:
+	## Empty string = ok; otherwise a kid-readable reason.
+	var t := normalize_size_tier(tier)
+	if not SIZE_CELLS.has(t):
+		return "Unknown house size"
+	var cells := cells_for_tier(t)
+	var need := furniture_max_cell()
+	if need.x >= cells or need.y >= cells:
+		return "Move furniture closer before making the house smaller"
+	return ""
+
+
+func spawn_position() -> Vector3:
+	var cells := cells_for_tier(size_tier)
+	var size := float(cells) * FurnitureGrid.CELL_SIZE
+	return Vector3(size * 0.5, 0.1, size * 0.75)
+
+
+func move_bounds() -> Dictionary:
+	## Soft clamp for networked player positions (with a little outdoor apron).
+	var cells := cells_for_tier(size_tier)
+	var size := float(cells) * FurnitureGrid.CELL_SIZE
+	return {
+		"min_x": -1.0,
+		"max_x": size + 2.0,
+		"min_z": -1.0,
+		"max_z": size + 1.0,
+		"min_y": 0.0,
+		"max_y": HouseSpace.WALL_H + 0.5,
+	}
 
 
 func _sanitize_furniture() -> void:

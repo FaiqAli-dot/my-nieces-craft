@@ -26,6 +26,9 @@ func _ready() -> void:
 	_test_creative_flight_gates()
 	await _test_house_floor_collision()
 	_test_player_proportions()
+	_test_third_person_facing()
+	await _test_house_height()
+	await _test_house_size_tiers()
 	await _test_flight_cluster_inset_api()
 	await _test_world_serialize()
 	await _test_chunk_mesh_update()
@@ -333,6 +336,8 @@ func _test_house_permissions() -> void:
 	_assert(HousePermissions.can_decorate(house, "visitor"), "collab can decorate")
 	_assert(HousePermissions.can_toggle_collab(house, "owner1"), "owner toggles collab")
 	_assert(not HousePermissions.can_toggle_collab(house, "visitor"), "visitor cannot toggle collab")
+	_assert(HousePermissions.can_set_house_size(house, "owner1"), "owner can set house size")
+	_assert(not HousePermissions.can_set_house_size(house, "visitor"), "visitor cannot set house size")
 	_assert(HousePermissions.can_enter(house, "owner1", false), "owner enters")
 	_assert(HousePermissions.can_enter(house, "friend", true), "invite enters")
 	_assert(not HousePermissions.can_enter(house, "stranger", false), "no invite blocked")
@@ -344,15 +349,29 @@ func _test_house_persistence() -> void:
 	var house := store.ensure_house_for_owner("pid_alice", "Alice")
 	_assert(house.house_id != "", "house id assigned")
 	_assert(house.invite_code.length() == 6, "invite code length")
+	_assert(house.size_tier == HouseLayout.SIZE_SMALL, "new house defaults Small")
 	var code := house.invite_code
+	var grown := GameServer.apply_size_for_test(store, house.house_id, "pid_alice", HouseLayout.SIZE_LARGE)
+	_assert(bool(grown.get("ok", false)), "owner can grow to Large")
+	_assert(str(grown.get("size_tier", "")) == HouseLayout.SIZE_LARGE, "grown tier Large")
+	var denied_size := GameServer.apply_size_for_test(store, house.house_id, "pid_bob", HouseLayout.SIZE_MEDIUM)
+	_assert(not bool(denied_size.get("ok", true)), "visitor size change denied")
 	var placed := GameServer.apply_place_for_test(store, house.house_id, "pid_alice", "chair", Vector2i(2, 2), 0)
 	_assert(bool(placed.get("ok", false)), "owner place ok")
+	# Far furniture in Large room — shrinking to Small must be rejected.
+	var edge := GameServer.apply_place_for_test(store, house.house_id, "pid_alice", "lamp", Vector2i(18, 18), 0)
+	_assert(bool(edge.get("ok", false)), "place near Large edge")
+	var shrink_blocked := GameServer.apply_size_for_test(store, house.house_id, "pid_alice", HouseLayout.SIZE_SMALL)
+	_assert(not bool(shrink_blocked.get("ok", true)), "shrink blocked while furniture outside Small")
 	# Simulate backend restart with a fresh store on same dir
 	var store2 := HouseStore.new(dir)
 	var reloaded := store2.load_house(house.house_id)
 	_assert(reloaded != null, "reload after restart")
-	_assert(reloaded.furniture.size() == 1, "furniture persisted")
+	_assert(reloaded.furniture.size() == 2, "furniture persisted")
 	_assert(str(reloaded.furniture[0].get("def_id", "")) == "chair", "chair persisted")
+	_assert(reloaded.size_tier == HouseLayout.SIZE_LARGE, "size_tier persisted across restart")
+	_assert(reloaded.room_max == Vector2i(19, 19), "Large room_max persisted")
+	_assert(int(reloaded.to_dict().get("schema", 0)) == HouseLayout.SCHEMA_VERSION, "schema v2 on save")
 	var by_invite := store2.get_house_id_for_invite(code)
 	_assert(by_invite == house.house_id, "invite resolves house")
 	# Unauthorized place
@@ -365,6 +384,18 @@ func _test_house_persistence() -> void:
 	# Overlap reject
 	var overlap := GameServer.apply_place_for_test(store2, house.house_id, "pid_alice", "chair", Vector2i(2, 2), 0)
 	_assert(not bool(overlap.get("ok", false)), "overlap rejected by server helper")
+	# Schema v1 migration: missing size_tier infers Small from 12×12 bounds.
+	var legacy := {
+		"schema": 1,
+		"house_id": "legacy_h",
+		"owner_id": "pid_x",
+		"furniture": [],
+		"room_min": [0, 0],
+		"room_max": [11, 11],
+	}
+	var migrated := HouseLayout.from_dict(legacy)
+	_assert(migrated.size_tier == HouseLayout.SIZE_SMALL, "v1 migrate → Small")
+	_assert(int(migrated.to_dict().get("schema", 0)) == 2, "migrated save writes schema 2")
 	await get_tree().process_frame
 
 
@@ -463,6 +494,11 @@ func _test_meadow_house_exclusive_menus() -> void:
 	house.open_catalog()
 	house.open_catalog()
 	_assert(not house.catalog_panel.visible, "catalog toggles closed")
+	house._is_owner = true
+	house.open_size_panel()
+	_assert(house.size_panel.visible and not house.catalog_panel.visible, "size panel exclusive")
+	house.open_catalog()
+	_assert(house.catalog_panel.visible and not house.size_panel.visible, "catalog closes size")
 	house.queue_free()
 	await get_tree().process_frame
 
@@ -538,6 +574,77 @@ func _test_player_proportions() -> void:
 	_assert(is_equal_approx(PlayerController.CAPSULE_HEIGHT, 1.8), "FP capsule height 1.8")
 	_assert(is_equal_approx(ThirdPersonController.CAPSULE_HEIGHT, 1.8), "TP capsule height 1.8")
 	_assert(ThirdPersonController.MODEL_SCALE >= 0.85, "avatar scale raised from 0.62")
+
+
+func _test_third_person_facing() -> void:
+	## Kenney meshes face +Z; visual yaw must aim that axis along travel.
+	var dirs: Array[Vector3] = [
+		Vector3(0, 0, -1),
+		Vector3(0, 0, 1),
+		Vector3(1, 0, 0),
+		Vector3(-1, 0, 0),
+		Vector3(0.7, 0, -0.7).normalized(),
+		Vector3(-0.5, 0, 0.5).normalized(),
+	]
+	for dir in dirs:
+		var yaw := ThirdPersonController.visual_yaw_for_move_dir(dir)
+		var fwd := ThirdPersonController.visual_forward_from_yaw(yaw)
+		_assert(fwd.dot(dir) > 0.95, "avatar forward matches travel %s" % dir)
+	# Old Godot −Z atan2 would face the opposite way when walking camera-forward.
+	var away := Vector3(0, 0, -1)
+	var fixed := ThirdPersonController.visual_yaw_for_move_dir(away)
+	var legacy := atan2(-away.x, -away.z)
+	_assert(not is_equal_approx(fixed, legacy), "facing fix differs from legacy −Z atan2")
+	_assert(ThirdPersonController.visual_forward_from_yaw(fixed).dot(away) > 0.95, "walk-away shows back to camera")
+
+
+func _test_house_height() -> void:
+	_assert(HouseSpace.WALL_H >= 4.5, "walls raised for 1.8m character")
+	_assert(HouseSpace.DOOR_CLEARANCE >= 2.2, "door clearance fits capsule")
+	_assert(HouseSpace.WALL_H > ThirdPersonController.CAM_HEIGHT + 2.0, "ceiling above camera pivot + spring headroom")
+	var space := HouseSpace.new()
+	var furn := Node3D.new()
+	furn.name = "FurnitureRoot"
+	space.add_child(furn)
+	var players := Node3D.new()
+	players.name = "PlayersRoot"
+	space.add_child(players)
+	add_child(space)
+	await get_tree().process_frame
+	_assert(space.has_ceiling_collision(), "ceiling has collision for SpringArm")
+	_assert(space.door_clearance() >= 2.2, "door_clearance accessor")
+	_assert(space.ceiling_y() > HouseSpace.WALL_H, "ceiling above wall top")
+	space.queue_free()
+	await get_tree().process_frame
+
+
+func _test_house_size_tiers() -> void:
+	_assert(HouseLayout.cells_for_tier(HouseLayout.SIZE_SMALL) == 12, "Small 12 cells")
+	_assert(HouseLayout.cells_for_tier(HouseLayout.SIZE_MEDIUM) == 16, "Medium 16 cells")
+	_assert(HouseLayout.cells_for_tier(HouseLayout.SIZE_LARGE) == 20, "Large 20 cells")
+	var h := HouseLayout.new()
+	h.apply_size_tier(HouseLayout.SIZE_MEDIUM, true)
+	_assert(h.room_max == Vector2i(15, 15), "Medium room_max")
+	h.furniture = [{"instance_id": "a", "def_id": "chair", "cell_x": 14, "cell_z": 14, "rotation": 0}]
+	_assert(h.can_apply_size_tier(HouseLayout.SIZE_SMALL) != "", "cannot shrink below furniture")
+	_assert(h.can_apply_size_tier(HouseLayout.SIZE_LARGE) == "", "can grow with furniture")
+	var space := HouseSpace.new()
+	var furn := Node3D.new()
+	furn.name = "FurnitureRoot"
+	space.add_child(furn)
+	var players := Node3D.new()
+	players.name = "PlayersRoot"
+	space.add_child(players)
+	add_child(space)
+	await get_tree().process_frame
+	space.apply_size_cells(20)
+	await get_tree().process_frame
+	_assert(space.room_cells == 20, "space rebuilds Large")
+	_assert(is_equal_approx(space.room_size_meters(), 20.0), "Large is 20m")
+	var spawn := space.spawn_position()
+	_assert(spawn.x > 8.0 and spawn.z > 10.0, "Large spawn scales with room")
+	space.queue_free()
+	await get_tree().process_frame
 
 
 func _test_flight_cluster_inset_api() -> void:

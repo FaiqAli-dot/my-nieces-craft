@@ -6,7 +6,6 @@ const DEFAULT_PORT := 9080
 const MOVE_BROADCAST_HZ := 12.0
 const MAX_MSG_BYTES := 8192
 const OP_RATE_PER_SEC := 8
-const SPAWN_POS := Vector3(6.0, 0.1, 6.0)
 
 signal log_line(text: String)
 
@@ -121,6 +120,8 @@ func _handle_raw(peer_id: int, text: String) -> void:
 			_on_furn_remove(peer_id, p, op)
 		NetProtocol.C_SET_COLLAB:
 			_on_set_collab(peer_id, p)
+		NetProtocol.C_SET_HOUSE_SIZE:
+			_on_set_house_size(peer_id, p)
 		NetProtocol.C_REQUEST_INVITE:
 			_on_request_invite(peer_id)
 		NetProtocol.C_REVOKE_INVITE:
@@ -218,8 +219,9 @@ func _enter_house(peer_id: int, house: HouseLayout, as_owner_entry: bool) -> voi
 		return
 	members[peer_id] = true
 	info["house_id"] = house.house_id
+	var spawn := house.spawn_position()
 	var pos := {
-		"x": SPAWN_POS.x, "y": SPAWN_POS.y, "z": SPAWN_POS.z,
+		"x": spawn.x, "y": spawn.y, "z": spawn.z,
 		"yaw": 0.0, "moving": false,
 		"display_name": info["display_name"],
 		"player_id": player_id,
@@ -233,7 +235,7 @@ func _enter_house(peer_id: int, house: HouseLayout, as_owner_entry: bool) -> voi
 		"role": HousePermissions.role_name(role),
 		"you": player_id,
 		"players": _players_payload(house.house_id),
-		"spawn": {"x": SPAWN_POS.x, "y": SPAWN_POS.y, "z": SPAWN_POS.z},
+		"spawn": {"x": spawn.x, "y": spawn.y, "z": spawn.z},
 		"as_owner_entry": as_owner_entry,
 	}))
 	_broadcast(house.house_id, NetProtocol.pack(NetProtocol.S_PLAYER_JOINED, pos), peer_id)
@@ -270,10 +272,13 @@ func _on_move(peer_id: int, p: Dictionary) -> void:
 	var player_id := str(info.get("player_id", ""))
 	if house_id == "" or not _rooms.has(house_id):
 		return
-	# Clamp to house bounds roughly
-	var x := clampf(float(p.get("x", 0.0)), -1.0, 14.0)
-	var y := clampf(float(p.get("y", 0.0)), 0.0, 4.0)
-	var z := clampf(float(p.get("z", 0.0)), -1.0, 14.0)
+	var house := store.load_house(house_id)
+	var bounds := house.move_bounds() if house else {
+		"min_x": -1.0, "max_x": 14.0, "min_z": -1.0, "max_z": 14.0, "min_y": 0.0, "max_y": 5.0
+	}
+	var x := clampf(float(p.get("x", 0.0)), float(bounds["min_x"]), float(bounds["max_x"]))
+	var y := clampf(float(p.get("y", 0.0)), float(bounds["min_y"]), float(bounds["max_y"]))
+	var z := clampf(float(p.get("z", 0.0)), float(bounds["min_z"]), float(bounds["max_z"]))
 	var yaw := float(p.get("yaw", 0.0))
 	var moving := bool(p.get("moving", false))
 	var pos := {
@@ -476,6 +481,39 @@ func _on_set_collab(peer_id: int, p: Dictionary) -> void:
 	}))
 
 
+func _on_set_house_size(peer_id: int, p: Dictionary) -> void:
+	var info: Dictionary = _peers.get(peer_id, {})
+	var house_id := str(info.get("house_id", ""))
+	var player_id := str(info.get("player_id", ""))
+	var house := store.load_house(house_id)
+	if house == null:
+		_send_error(peer_id, "not in a house")
+		return
+	if not HousePermissions.can_set_house_size(house, player_id):
+		_send_error(peer_id, "only the owner can change house size", "no_permission")
+		return
+	var tier := HouseLayout.normalize_size_tier(str(p.get("size_tier", "")))
+	var reason := house.can_apply_size_tier(tier)
+	if reason != "":
+		_send_error(peer_id, reason, "size_blocked")
+		return
+	house.apply_size_tier(tier, true)
+	house.revision += 1
+	house.updated_at = int(Time.get_unix_time_from_system())
+	store.save_house(house)
+	var spawn := house.spawn_position()
+	var payload := {
+		"house": house.to_dict(),
+		"revision": house.revision,
+		"size_tier": house.size_tier,
+		"spawn": {"x": spawn.x, "y": spawn.y, "z": spawn.z},
+		"players": _players_payload(house.house_id),
+	}
+	# Include every member (owner + visitors) so geometry stays in sync.
+	_broadcast(house.house_id, NetProtocol.pack(NetProtocol.S_HOUSE_SIZE_CHANGED, payload), -1)
+	_log("House size=%s house=%s rev=%d" % [house.size_tier, house.house_id, house.revision])
+
+
 func _on_request_invite(peer_id: int) -> void:
 	var info: Dictionary = _peers.get(peer_id, {})
 	var house_id := str(info.get("house_id", ""))
@@ -534,12 +572,13 @@ func _send_house_state(peer_id: int, house: HouseLayout) -> void:
 	var role := HousePermissions.Role.OWNER if player_id == house.owner_id else (
 		HousePermissions.Role.COLLABORATOR if house.collaboration_enabled else HousePermissions.Role.VISITOR
 	)
+	var spawn := house.spawn_position()
 	_send(peer_id, NetProtocol.pack(NetProtocol.S_HOUSE_STATE, {
 		"house": house.to_dict(),
 		"role": HousePermissions.role_name(role),
 		"you": player_id,
 		"players": _players_payload(house.house_id),
-		"spawn": {"x": SPAWN_POS.x, "y": SPAWN_POS.y, "z": SPAWN_POS.z},
+		"spawn": {"x": spawn.x, "y": spawn.y, "z": spawn.z},
 	}))
 
 
@@ -624,3 +663,20 @@ static func apply_place_for_test(store: HouseStore, house_id: String, actor_id: 
 	house.revision += 1
 	store.save_house(house)
 	return {"ok": true, "instance": inst, "revision": house.revision, "house": house}
+
+
+## Test helper: owner size change with the same validation as the live server.
+static func apply_size_for_test(store: HouseStore, house_id: String, actor_id: String, tier: String) -> Dictionary:
+	var house := store.load_house(house_id)
+	if house == null:
+		return {"ok": false, "reason": "missing"}
+	if not HousePermissions.can_set_house_size(house, actor_id):
+		return {"ok": false, "reason": "no_permission"}
+	var blocked := house.can_apply_size_tier(tier)
+	if blocked != "":
+		return {"ok": false, "reason": blocked}
+	house.apply_size_tier(tier, true)
+	house.revision += 1
+	house.updated_at = int(Time.get_unix_time_from_system())
+	store.save_house(house)
+	return {"ok": true, "house": house, "revision": house.revision, "size_tier": house.size_tier}

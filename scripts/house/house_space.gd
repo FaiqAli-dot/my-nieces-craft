@@ -1,17 +1,24 @@
 extends Node3D
 class_name HouseSpace
 ## Cozy Sunny Toy Meadow interior: warm floor, painted walls, windows, door.
+## Room footprint follows the house size tier (Small / Medium / Large).
 
 const FLOOR_Y := 0.0
-const ROOM_CELLS := 12
-const WALL_H := 3.2
+## Default matches HouseLayout SIZE_SMALL (12×12 cells).
+const DEFAULT_ROOM_CELLS := 12
+## Tall enough for a 1.8m avatar + third-person SpringArm without clipping.
+const WALL_H := 4.8
 const WALL_T := 0.28
 ## Thick walkable slab so CharacterBody3D never tunnels at spawn / jump landings.
 const FLOOR_THICKNESS := 0.5
+## Clear doorway height for the taller capsule (bottom of lintel).
+const DOOR_CLEARANCE := 2.45
+const DOOR_WIDTH := 2.4
 
+var room_cells: int = DEFAULT_ROOM_CELLS
 var grid_origin: Vector3 = Vector3.ZERO
 var room_min: Vector2i = Vector2i(0, 0)
-var room_max: Vector2i = Vector2i(ROOM_CELLS - 1, ROOM_CELLS - 1)
+var room_max: Vector2i = Vector2i(DEFAULT_ROOM_CELLS - 1, DEFAULT_ROOM_CELLS - 1)
 
 @onready var furniture_root: Node3D = $FurnitureRoot
 @onready var players_root: Node3D = $PlayersRoot
@@ -19,6 +26,33 @@ var room_max: Vector2i = Vector2i(ROOM_CELLS - 1, ROOM_CELLS - 1)
 
 func _ready() -> void:
 	_build_room()
+
+
+func apply_room_bounds(rmin: Vector2i, rmax: Vector2i) -> void:
+	room_min = rmin
+	room_max = rmax
+	room_cells = maxi(rmax.x - rmin.x + 1, rmax.y - rmin.y + 1)
+	room_cells = maxi(room_cells, 8)
+	_build_room()
+
+
+func apply_size_cells(cells: int) -> void:
+	room_cells = clampi(cells, 8, 24)
+	room_min = Vector2i(0, 0)
+	room_max = Vector2i(room_cells - 1, room_cells - 1)
+	_build_room()
+
+
+func room_size_meters() -> float:
+	return float(room_cells) * FurnitureGrid.CELL_SIZE
+
+
+func ceiling_y() -> float:
+	return WALL_H + 0.08
+
+
+func door_clearance() -> float:
+	return DOOR_CLEARANCE
 
 
 func _build_room() -> void:
@@ -29,7 +63,7 @@ func _build_room() -> void:
 	gen.name = "Generated"
 	add_child(gen)
 
-	var size := float(ROOM_CELLS) * FurnitureGrid.CELL_SIZE
+	var size := room_size_meters()
 	grid_origin = Vector3(0, FLOOR_Y, 0)
 
 	_build_floor(gen, size)
@@ -97,13 +131,15 @@ func _build_floor(gen: Node3D, size: float) -> void:
 	# Soft toy floor boards (visual only — collision comes from the slab below)
 	var plank := _mat(Color(0.90, 0.74, 0.52), 0.9)
 	var plank_b := _mat(Color(0.86, 0.68, 0.46), 0.9)
-	for i in ROOM_CELLS:
+	for i in room_cells:
 		var m := plank if i % 2 == 0 else plank_b
 		_box(gen, Vector3(size * 0.5, 0.01, float(i) + 0.5), Vector3(size - 0.2, 0.04, 0.96), m, false)
-	# Center rug (walkable visual only)
-	_box(gen, Vector3(size * 0.5, 0.04, size * 0.5), Vector3(4.8, 0.03, 3.4),
+	# Center rug scales gently with room size (walkable visual only)
+	var rug_w := minf(4.8 + float(room_cells - 12) * 0.25, size * 0.55)
+	var rug_d := minf(3.4 + float(room_cells - 12) * 0.18, size * 0.4)
+	_box(gen, Vector3(size * 0.5, 0.04, size * 0.5), Vector3(rug_w, 0.03, rug_d),
 		_mat(Color(0.95, 0.55, 0.62), 0.95), false)
-	_box(gen, Vector3(size * 0.5, 0.05, size * 0.5), Vector3(3.6, 0.02, 2.2),
+	_box(gen, Vector3(size * 0.5, 0.05, size * 0.5), Vector3(rug_w * 0.75, 0.02, rug_d * 0.65),
 		_mat(Color(1.0, 0.78, 0.45), 0.95), false)
 
 
@@ -120,13 +156,16 @@ func _build_walls(gen: Node3D, size: float) -> void:
 
 
 func _build_ceiling(gen: Node3D, size: float) -> void:
-	_box(gen, Vector3(size * 0.5, WALL_H + 0.08, size * 0.5), Vector3(size + 0.5, 0.16, size + 0.5),
-		_mat(Color(0.98, 0.95, 0.88), 0.95), false)
-	# Soft beams
+	# Colliding ceiling so SpringArm retracts instead of poking through.
+	_box(gen, Vector3(size * 0.5, ceiling_y(), size * 0.5), Vector3(size + 0.5, 0.16, size + 0.5),
+		_mat(Color(0.98, 0.95, 0.88), 0.95), true)
+	# Soft beams — spaced across the room
 	var beam := _mat(Color(0.70, 0.48, 0.30), 0.88)
-	for i in 3:
-		var z := 2.5 + float(i) * 3.5
-		_box(gen, Vector3(size * 0.5, WALL_H - 0.05, z), Vector3(size - 0.4, 0.12, 0.18), beam, false)
+	var beam_count := clampi(room_cells / 4, 3, 6)
+	for i in beam_count:
+		var t := (float(i) + 1.0) / float(beam_count + 1)
+		var z := size * t
+		_box(gen, Vector3(size * 0.5, WALL_H - 0.08, z), Vector3(size - 0.4, 0.14, 0.18), beam, false)
 
 
 func _build_trim(gen: Node3D, size: float) -> void:
@@ -146,29 +185,39 @@ func _build_windows(gen: Node3D, size: float) -> void:
 	glass.emission = Color(0.65, 0.88, 1.0)
 	glass.emission_energy_multiplier = 0.55
 	glass.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# Mid-wall windows stay proportionate on the taller walls.
+	var win_y := 2.15
 	for x in [size * 0.32, size * 0.68]:
-		_box(gen, Vector3(x, 1.85, 0.02), Vector3(1.7, 1.35, 0.12), frame, false)
-		_box(gen, Vector3(x, 1.85, 0.08), Vector3(1.35, 1.05, 0.05), glass, false)
+		_box(gen, Vector3(x, win_y, 0.02), Vector3(1.7, 1.45, 0.12), frame, false)
+		_box(gen, Vector3(x, win_y, 0.08), Vector3(1.35, 1.15, 0.05), glass, false)
 
 
 func _build_door(gen: Node3D, size: float) -> void:
 	var wall := _mat(Color(0.98, 0.93, 0.82), 0.96, true)
 	var frame := _mat(Color(0.68, 0.46, 0.28), 0.85)
 	var door := _mat(Color(0.85, 0.55, 0.38), 0.8)
+	var gap := DOOR_WIDTH
+	var side_span := (size - gap) * 0.5
 	# East wall with door gap (open doorway — no door-leaf collision)
-	_box(gen, Vector3(size + WALL_T * 0.5, WALL_H * 0.5, size * 0.22), Vector3(WALL_T, WALL_H, size * 0.44), wall)
-	_box(gen, Vector3(size + WALL_T * 0.5, WALL_H * 0.5, size * 0.78), Vector3(WALL_T, WALL_H, size * 0.44), wall)
-	_box(gen, Vector3(size + WALL_T * 0.5, WALL_H * 0.78, size * 0.5), Vector3(WALL_T, WALL_H * 0.44, 2.6), wall)
+	_box(gen, Vector3(size + WALL_T * 0.5, WALL_H * 0.5, side_span * 0.5), Vector3(WALL_T, WALL_H, side_span), wall)
+	_box(gen, Vector3(size + WALL_T * 0.5, WALL_H * 0.5, size - side_span * 0.5), Vector3(WALL_T, WALL_H, side_span), wall)
+	var lintel_h := WALL_H - DOOR_CLEARANCE
+	_box(
+		gen,
+		Vector3(size + WALL_T * 0.5, DOOR_CLEARANCE + lintel_h * 0.5, size * 0.5),
+		Vector3(WALL_T, lintel_h, gap + 0.2),
+		wall
+	)
 	# Door frame + open leaf parked aside (visual only so doorway stays usable)
-	_box(gen, Vector3(size + 0.02, 1.15, size * 0.5), Vector3(0.12, 2.3, 1.55), frame, false)
-	_box(gen, Vector3(size + 0.08, 1.05, size * 0.5 - 0.55), Vector3(0.08, 2.05, 0.72), door, false)
-	_box(gen, Vector3(size + 0.14, 1.1, size * 0.5 - 0.3), Vector3(0.06, 0.12, 0.12),
+	_box(gen, Vector3(size + 0.02, DOOR_CLEARANCE * 0.5, size * 0.5), Vector3(0.12, DOOR_CLEARANCE, gap * 0.65), frame, false)
+	_box(gen, Vector3(size + 0.08, DOOR_CLEARANCE * 0.45, size * 0.5 - gap * 0.28), Vector3(0.08, DOOR_CLEARANCE * 0.9, gap * 0.3), door, false)
+	_box(gen, Vector3(size + 0.14, DOOR_CLEARANCE * 0.48, size * 0.5 - gap * 0.15), Vector3(0.06, 0.12, 0.12),
 		_mat(Color(1.0, 0.85, 0.35), 0.6), false)
 
 
 func _build_decor(gen: Node3D, size: float) -> void:
 	# Window flower shelf — light solid so kids bump into it
-	_box(gen, Vector3(size * 0.32, 1.05, 0.35), Vector3(1.2, 0.1, 0.35),
+	_box(gen, Vector3(size * 0.32, 1.25, 0.35), Vector3(1.2, 0.1, 0.35),
 		_mat(Color(0.75, 0.5, 0.32), 0.88), true)
 	# Soft corner cushion blocks — solid seating props
 	_box(gen, Vector3(1.1, 0.28, 1.1), Vector3(1.2, 0.55, 1.2),
@@ -192,15 +241,15 @@ func _build_lights(gen: Node3D, size: float) -> void:
 	fill.shadow_enabled = false
 	gen.add_child(fill)
 	var lamp := OmniLight3D.new()
-	lamp.position = Vector3(size * 0.5, 2.7, size * 0.5)
+	lamp.position = Vector3(size * 0.5, WALL_H - 1.1, size * 0.5)
 	lamp.light_color = Color(1.0, 0.9, 0.72)
-	lamp.light_energy = 0.7
-	lamp.omni_range = 14.0
+	lamp.light_energy = 0.75
+	lamp.omni_range = size * 1.2
 	lamp.shadow_enabled = false
 	gen.add_child(lamp)
 	for x in [size * 0.32, size * 0.68]:
 		var w := OmniLight3D.new()
-		w.position = Vector3(x, 1.8, 0.6)
+		w.position = Vector3(x, 2.1, 0.6)
 		w.light_color = Color(0.7, 0.88, 1.0)
 		w.light_energy = 0.35
 		w.omni_range = 4.0
@@ -232,8 +281,9 @@ func _build_environment(gen: Node3D) -> void:
 
 
 func spawn_position() -> Vector3:
-	## Origin sits on the floor; capsule center is offset in the player scene.
-	return Vector3(6.0, FLOOR_Y, 9.0)
+	## Near the east doorway, on the floor; capsule center is offset in the player scene.
+	var size := room_size_meters()
+	return Vector3(size * 0.5, FLOOR_Y, size * 0.75)
 
 
 func floor_collision_count() -> int:
@@ -245,3 +295,18 @@ func floor_collision_count() -> int:
 		if c is StaticBody3D:
 			n += 1
 	return n
+
+
+func has_ceiling_collision() -> bool:
+	var gen := get_node_or_null("Generated")
+	if gen == null:
+		return false
+	var ceil_y := ceiling_y()
+	for c in gen.get_children():
+		if c is StaticBody3D:
+			for ch in c.get_children():
+				if ch is CollisionShape3D:
+					var cs := ch as CollisionShape3D
+					if absf(cs.position.y - ceil_y) < 0.2:
+						return true
+	return false

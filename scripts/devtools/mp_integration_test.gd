@@ -32,6 +32,7 @@ func _ready() -> void:
 	await _scenario_unauthorized_ownership()
 	await _scenario_invite_invalid_expired_revoked()
 	await _scenario_capacity_limit()
+	await _scenario_house_size_sync()
 
 	print("=== MP Results: %d passed, %d failed ===" % [passed, failed])
 	if OS.get_environment("COZY_MP_TEST_QUIT") == "1":
@@ -385,3 +386,34 @@ func _scenario_capacity_limit() -> void:
 	await _close(a)
 	await _close(b)
 	await _close(c)
+
+
+func _scenario_house_size_sync() -> void:
+	print("-- house size owner sync --")
+	var a := await _connect_client()
+	var b := await _connect_client()
+	await _hello(a, "alice_size", "Alice")
+	await _hello(b, "bob_size", "Bob")
+	_send(a, NetProtocol.C_ENTER_OWN)
+	var sa := await _wait_type(a, NetProtocol.S_HOUSE_STATE, 2.0)
+	var invite := str(sa.get("p", {}).get("house", {}).get("invite_code", ""))
+	_assert(str(sa.get("p", {}).get("house", {}).get("size_tier", "")) == HouseLayout.SIZE_SMALL, "starts Small")
+	_send(b, NetProtocol.C_JOIN_INVITE, {"code": invite})
+	await _wait_type(b, NetProtocol.S_HOUSE_STATE, 2.0)
+	# Visitor cannot grow the house.
+	_send(b, NetProtocol.C_SET_HOUSE_SIZE, {"size_tier": HouseLayout.SIZE_MEDIUM})
+	var denied := await _wait_type(b, NetProtocol.S_ERROR, 2.0)
+	_assert(str(denied.get("p", {}).get("code", "")) == "no_permission", "visitor size denied")
+	# Owner grows → both peers get S_HOUSE_SIZE_CHANGED.
+	_send(a, NetProtocol.C_SET_HOUSE_SIZE, {"size_tier": HouseLayout.SIZE_MEDIUM})
+	var size_a := await _wait_type(a, NetProtocol.S_HOUSE_SIZE_CHANGED, 2.0)
+	var size_b := await _wait_type(b, NetProtocol.S_HOUSE_SIZE_CHANGED, 2.0)
+	_assert(str(size_a.get("p", {}).get("size_tier", "")) == HouseLayout.SIZE_MEDIUM, "owner sees Medium")
+	_assert(str(size_b.get("p", {}).get("size_tier", "")) == HouseLayout.SIZE_MEDIUM, "visitor synced Medium")
+	_assert(int(size_b.get("p", {}).get("house", {}).get("room_max", [0, 0])[0]) == 15, "visitor room_max 15")
+	# Persist across server store reload (restart simulation).
+	var house_id := str(sa.get("p", {}).get("house", {}).get("house_id", ""))
+	var reloaded := HouseStore.new(_data_dir).load_house(house_id)
+	_assert(reloaded != null and reloaded.size_tier == HouseLayout.SIZE_MEDIUM, "size persisted after restart load")
+	await _close(a)
+	await _close(b)

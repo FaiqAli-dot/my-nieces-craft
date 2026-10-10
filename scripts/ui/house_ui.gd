@@ -26,6 +26,7 @@ var roster_box: VBoxContainer
 var debug_box: VBoxContainer
 var catalog_panel: PanelContainer
 var visit_panel: PanelContainer
+var size_panel: PanelContainer
 var invite_input: LineEdit
 var touch_layer: Control
 var joystick: TouchJoystick
@@ -37,6 +38,8 @@ var place_btn: ActionButton
 var rotate_btn: ActionButton
 var cancel_btn: ActionButton
 var jump_btn: ActionButton
+var size_btn: Button
+var size_chip: Label
 var _toast_timer := 0.0
 var toast_label: Label
 var _catalog_open := false
@@ -48,6 +51,8 @@ var panels := ExclusivePanels.new()
 var floating_joystick: bool = true
 var move_zone_width_fraction: float = 0.42
 var _top_actions: HBoxContainer
+var _size_tier: String = HouseLayout.DEFAULT_SIZE_TIER
+var _is_owner := false
 
 
 func _ready() -> void:
@@ -143,6 +148,8 @@ func _build() -> void:
 	chips.add_child(collab_chip.get_meta("_chip_wrap"))
 	invite_chip = _chip("Invite —", COL_PINK.lightened(0.25))
 	cv.add_child(invite_chip.get_meta("_chip_wrap"))
+	size_chip = _chip("Size Small", COL_GREEN.lightened(0.35))
+	cv.add_child(size_chip.get_meta("_chip_wrap"))
 	cv.add_child(_lab("Friends here", 18))
 	roster_box = VBoxContainer.new()
 	roster_box.name = "Roster"
@@ -172,6 +179,7 @@ func _build() -> void:
 	root.add_child(_top_actions)
 	for spec in [
 		["Catalog", COL_SKY, open_catalog],
+		["House size", COL_GREEN, open_size_panel],
 		["Invite", COL_PINK, func(): NetClient.request_invite()],
 		["Visit", COL_ACCENT, open_visit_panel],
 		["Collab", COL_GREEN, _toggle_collab],
@@ -180,9 +188,11 @@ func _build() -> void:
 	]:
 		var b := Button.new()
 		b.text = spec[0]
-		_theme_button(b, Vector2(110, 48), spec[1])
+		_theme_button(b, Vector2(110 if spec[0] != "House size" else 130, 48), spec[1])
 		b.pressed.connect(spec[2])
 		_top_actions.add_child(b)
+		if spec[0] == "House size":
+			size_btn = b
 
 	toast_label = _lab("", 26)
 	toast_label.name = "Toast"
@@ -241,8 +251,30 @@ func _build() -> void:
 		panels.close("visit")
 	)
 	vv.add_child(own_btn)
+	size_panel = _panel(root, "House size", Vector2(420, 280))
+	var sv: VBoxContainer = size_panel.get_node("Margin/VBox")
+	sv.add_child(_lab("Pick a cozy room size", 18))
+	for tier in HouseLayout.SIZE_ORDER:
+		var tb := Button.new()
+		tb.name = "Size_%s" % tier
+		tb.text = "%s  (%dx%d)" % [
+			HouseLayout.label_for_tier(tier),
+			HouseLayout.cells_for_tier(tier),
+			HouseLayout.cells_for_tier(tier),
+		]
+		_theme_button(tb, Vector2(320, 52), COL_SKY if tier == HouseLayout.SIZE_SMALL else COL_ACCENT)
+		var chosen := tier
+		tb.pressed.connect(func(): _request_house_size(chosen))
+		sv.add_child(tb)
+	var close_s := Button.new()
+	close_s.text = "Close"
+	_theme_button(close_s, Vector2(160, 48), COL_CORAL)
+	close_s.pressed.connect(func(): panels.close("size"))
+	sv.add_child(close_s)
+
 	panels.register("catalog", catalog_panel)
 	panels.register("visit", visit_panel)
+	panels.register("size", size_panel)
 
 	# Touch under chrome so top chips / catalog / visit never spawn the stick.
 	_build_touch(root)
@@ -251,6 +283,7 @@ func _build() -> void:
 		root.move_child(_top_actions, -1)
 	root.move_child(catalog_panel, -1)
 	root.move_child(visit_panel, -1)
+	root.move_child(size_panel, -1)
 
 
 func _build_touch(root: Control) -> void:
@@ -479,14 +512,24 @@ func apply_house_state(state: Dictionary) -> void:
 	role_chip.text = role
 	house_title.text = str(house.get("display_name", "Cozy House"))
 	set_collab(bool(house.get("collaboration_enabled", false)))
-	if role == "Owner":
+	_is_owner = role == "Owner"
+	if _is_owner:
 		show_invite(str(house.get("invite_code", "")))
 		status_chip.text = "At home"
 	else:
 		invite_chip.text = "Visiting"
 		status_chip.text = "Visiting"
 	status_label.text = str(house.get("display_name", "House"))
+	refresh_size_chip(str(house.get("size_tier", HouseLayout.DEFAULT_SIZE_TIER)))
+	if size_btn:
+		size_btn.visible = _is_owner or NetClient.current_house.is_empty()
 	refresh_roster_from(state.get("players", []))
+
+
+func refresh_size_chip(tier: String) -> void:
+	_size_tier = HouseLayout.normalize_size_tier(tier)
+	if size_chip:
+		size_chip.text = "Size " + HouseLayout.label_for_tier(_size_tier)
 
 
 func refresh_roster() -> void:
@@ -542,6 +585,40 @@ func open_visit_panel() -> void:
 	panels.open("visit")
 
 
+func open_size_panel() -> void:
+	if not _is_owner and not NetClient.current_house.is_empty():
+		GameState.toast("Only the owner can change house size")
+		return
+	if panels.is_open("size"):
+		panels.close("size")
+		return
+	_highlight_size_buttons()
+	panels.open("size")
+
+
+func _highlight_size_buttons() -> void:
+	if size_panel == null:
+		return
+	var sv: VBoxContainer = size_panel.get_node("Margin/VBox")
+	for c in sv.get_children():
+		if c is Button and str(c.name).begins_with("Size_"):
+			var tier := str(c.name).substr(5)
+			var bg := COL_GREEN if tier == _size_tier else COL_SKY
+			_theme_button(c as Button, Vector2(320, 52), bg)
+
+
+func _request_house_size(tier: String) -> void:
+	panels.close("size")
+	if not NetClient.current_house.is_empty() and NetClient.connection_status() == "connected":
+		if not _is_owner:
+			GameState.toast("Only the owner can change house size")
+			return
+		NetClient.set_house_size(tier)
+		return
+	if world and world.has_method("apply_house_size_local"):
+		world.apply_house_size_local(tier)
+
+
 func _on_panel_opened(id: String) -> void:
 	_catalog_open = panels.is_open("catalog")
 	_visit_open = panels.is_open("visit")
@@ -549,6 +626,8 @@ func _on_panel_opened(id: String) -> void:
 		world.player.release_mouse()
 	if id == "catalog":
 		_populate_catalog()
+	elif id == "size":
+		_highlight_size_buttons()
 
 
 func _on_panel_closed(_id: String) -> void:

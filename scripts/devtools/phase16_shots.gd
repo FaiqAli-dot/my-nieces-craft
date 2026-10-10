@@ -29,10 +29,10 @@ func _house_shots(house: Node, out: String) -> void:
 			{"instance_id": "shot_shelf", "def_id": "bookshelf", "cell_x": 2, "cell_z": 3, "rotation": 90},
 			{"instance_id": "shot_bed", "def_id": "bed", "cell_x": 8, "cell_z": 2, "rotation": 0},
 		])
-	player.global_position = Vector3(6.0, 0.0, 9.2)
+	player.global_position = space.spawn_position()
 	player.yaw = 0.05
 	player.pitch = deg_to_rad(-12)
-	player.model_root.rotation.y = PI
+	player.face_direction(Vector3(0, 0, -1))
 	# Settle onto floor.
 	for _i in 20:
 		player._physics_process(0.016)

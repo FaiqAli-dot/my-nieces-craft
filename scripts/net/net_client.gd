@@ -195,6 +195,10 @@ func set_collab(enabled: bool) -> void:
 	send(NetProtocol.C_SET_COLLAB, {"enabled": enabled})
 
 
+func set_house_size(tier: String) -> void:
+	send(NetProtocol.C_SET_HOUSE_SIZE, {"size_tier": tier})
+
+
 func request_invite() -> void:
 	send(NetProtocol.C_REQUEST_INVITE)
 
@@ -234,6 +238,20 @@ func _handle(text: String) -> void:
 			if not current_house.is_empty():
 				current_house["collaboration_enabled"] = bool(p.get("enabled", false))
 			collab_changed.emit(p)
+		NetProtocol.S_HOUSE_SIZE_CHANGED:
+			revision = int(p.get("revision", revision))
+			var house_payload = p.get("house", {})
+			if typeof(house_payload) == TYPE_DICTIONARY and not house_payload.is_empty():
+				current_house = house_payload
+			# Re-emit as house_state so clients rebuild room geometry + grid.
+			house_state.emit({
+				"house": current_house,
+				"role": current_role,
+				"you": player_id,
+				"players": p.get("players", []),
+				"spawn": p.get("spawn", {}),
+				"size_changed": true,
+			})
 		NetProtocol.S_INVITE:
 			invite.emit(p)
 		NetProtocol.S_LEFT_HOUSE:
