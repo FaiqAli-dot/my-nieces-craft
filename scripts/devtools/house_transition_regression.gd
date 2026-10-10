@@ -6,11 +6,13 @@ const CYCLES := 10
 
 
 func _ready() -> void:
-	# Survive house→meadow scene swaps.
-	if get_parent() != get_tree().root:
+	# Survive house→meadow scene swaps. Capture the tree before remove_child
+	# (detach clears get_tree() until reparented).
+	var tree := get_tree()
+	if tree and get_parent() != tree.root:
 		var keep := self
 		get_parent().remove_child(keep)
-		get_tree().root.add_child(keep)
+		tree.root.add_child(keep)
 		keep.call_deferred("_start")
 		return
 	await _start()
