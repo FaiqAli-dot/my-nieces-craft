@@ -86,11 +86,26 @@ func _apply_body_proportions() -> void:
 func _spawn_model() -> void:
 	for c in model_root.get_children():
 		c.queue_free()
-	if not ResourceLoader.exists(character_scene):
-		character_scene = "res://assets/models/characters/character-a.glb"
-	if not ResourceLoader.exists(character_scene):
+	var candidates: PackedStringArray = [
+		character_scene,
+		"res://assets/models/characters/character-male-a.glb",
+		"res://assets/models/characters/character-a.glb",
+		"res://assets/models/characters/character-b.glb",
+	]
+	_model = null
+	for path in candidates:
+		if path == "" or not ResourceLoader.exists(path):
+			continue
+		var packed := load(path)
+		if packed == null:
+			continue
+		_model = packed.instantiate()
+		if _model:
+			character_scene = path
+			break
+	if _model == null:
+		push_warning("ThirdPersonController: no character mesh could be loaded")
 		return
-	_model = load(character_scene).instantiate()
 	_model.scale = Vector3.ONE * MODEL_SCALE
 	model_root.add_child(_model)
 	_anim = _find_anim(_model)
