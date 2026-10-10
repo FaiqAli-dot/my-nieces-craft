@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://cozy_server"]
+
+[ext_resource type="Script" path="res://scripts/net/server_main.gd" id="1_sm"]
+
+[node name="ServerRoot" type="Node"]
+script = ExtResource("1_sm")
