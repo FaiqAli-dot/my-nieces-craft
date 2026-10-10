@@ -10,6 +10,7 @@ var _remotes: Dictionary = {} # player_id -> RemotePlayer
 var _furniture: Dictionary = {} # instance_id -> FurnitureVisual
 var _selected_id: String = ""
 var _move_send_ok := true
+var _leaving := false
 
 
 func _ready() -> void:
@@ -33,7 +34,21 @@ func _ready() -> void:
 	_connect_net_signals()
 
 	if OS.get_environment("COZY_NET_AUTOSTART") != "0":
+		ui.set_status("Connecting…")
 		NetClient.connect_to_server()
+		# Skip the offline probe during automated harnesses that drive their own timing.
+		var skip_probe := (
+			OS.get_environment("COZY_E2E_ROLE") != ""
+			or OS.get_environment("COZY_HOUSE_TOUCH_TEST") == "1"
+			or OS.get_environment("COZY_TRANSITION_TEST") == "1"
+			or OS.get_environment("COZY_MP_TEST") == "1"
+			or OS.get_environment("COZY_SCREENSHOTS") == "1"
+		)
+		if not skip_probe:
+			# If the server is down, surface Offline quickly instead of a stuck Connecting chip.
+			await get_tree().create_timer(2.5).timeout
+			if is_inside_tree() and NetClient.current_house.is_empty() and NetClient.connection_status() != "connected":
+				ui.set_status("Offline demo")
 	else:
 		ui.set_status("Offline demo (server not started)")
 	if OS.get_environment("COZY_E2E_ROLE") != "":
@@ -44,6 +59,10 @@ func _ready() -> void:
 		var touch_test := Node.new()
 		touch_test.set_script(load("res://scripts/devtools/house_touch_regression.gd"))
 		add_child(touch_test)
+	if OS.get_environment("COZY_TRANSITION_TEST") == "1":
+		var tr := Node.new()
+		tr.set_script(load("res://scripts/devtools/house_transition_regression.gd"))
+		add_child(tr)
 	if OS.get_environment("COZY_SCREENSHOTS") == "1":
 		await get_tree().create_timer(1.2).timeout
 		await _run_shot_harness()
@@ -51,7 +70,12 @@ func _ready() -> void:
 			get_tree().quit(0)
 
 
+func _exit_tree() -> void:
+	_disconnect_net_signals()
+
+
 func _connect_net_signals() -> void:
+	_disconnect_net_signals()
 	NetClient.welcomed.connect(_on_welcomed)
 	NetClient.house_state.connect(_on_house_state)
 	NetClient.player_joined.connect(_on_player_joined)
@@ -63,8 +87,44 @@ func _connect_net_signals() -> void:
 	NetClient.invite.connect(_on_invite)
 	NetClient.left_house.connect(_on_left)
 	NetClient.server_error.connect(_on_err)
-	NetClient.connected.connect(func(): ui.set_status("Connected"))
-	NetClient.disconnected.connect(func(): ui.set_status("Disconnected"))
+	NetClient.connected.connect(_on_net_connected)
+	NetClient.disconnected.connect(_on_net_disconnected)
+
+
+func _disconnect_net_signals() -> void:
+	var pairs := [
+		[NetClient.welcomed, _on_welcomed],
+		[NetClient.house_state, _on_house_state],
+		[NetClient.player_joined, _on_player_joined],
+		[NetClient.player_left, _on_player_left],
+		[NetClient.player_moved, _on_player_moved],
+		[NetClient.furniture_upsert, _on_furn_upsert],
+		[NetClient.furniture_removed, _on_furn_removed],
+		[NetClient.collab_changed, _on_collab],
+		[NetClient.invite, _on_invite],
+		[NetClient.left_house, _on_left],
+		[NetClient.server_error, _on_err],
+		[NetClient.connected, _on_net_connected],
+		[NetClient.disconnected, _on_net_disconnected],
+	]
+	for pair in pairs:
+		var sig: Signal = pair[0]
+		var cb: Callable = pair[1]
+		if sig.is_connected(cb):
+			sig.disconnect(cb)
+
+
+func _on_net_connected() -> void:
+	if _leaving or not is_instance_valid(ui):
+		return
+	ui.set_status("Connected")
+
+
+func _on_net_disconnected() -> void:
+	## Ignore teardown noise while returning to the meadow.
+	if _leaving or NetClient.is_transitioning() or not is_instance_valid(ui):
+		return
+	ui.set_status("Offline")
 
 
 func _on_welcomed(_info: Dictionary) -> void:
@@ -300,7 +360,8 @@ func _try_select() -> void:
 	var from := cam.project_ray_origin(mouse)
 	var to := from + cam.project_ray_normal(mouse) * 20.0
 	var q := PhysicsRayQueryParameters3D.create(from, to)
-	q.collision_mask = 1
+	# Layer 1 = solid world/furniture; layer 4 = decorative pick targets (rugs/bears).
+	q.collision_mask = 1 | 4
 	var hit := cam.get_world_3d().direct_space_state.intersect_ray(q)
 	if hit.is_empty():
 		_set_selected("")
@@ -322,8 +383,16 @@ func _set_selected(iid: String) -> void:
 
 
 func go_voxel_world() -> void:
-	NetClient.disconnect_from_server()
-	get_tree().change_scene_to_file("res://scenes/world/main.tscn")
+	## Tear down net listeners first so "Disconnected/Reconnecting…" cannot stick
+	## the UI or fire into a freed HouseUi during the scene change.
+	if _leaving:
+		return
+	_leaving = true
+	if is_instance_valid(ui):
+		ui.set_status("Heading to meadow…")
+		ui.panels.close_all()
+	_disconnect_net_signals()
+	SceneFlow.return_to_meadow()
 
 
 func _run_shot_harness() -> void:

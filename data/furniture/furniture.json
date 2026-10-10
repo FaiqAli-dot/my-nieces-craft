@@ -7,7 +7,9 @@
     "rotation_increments_deg": 90,
     "scale": 2.35,
     "y_offset": 0.0,
-    "paint": "wood"
+    "paint": "wood",
+    "solid": true,
+    "collision_height": 1.05
   },
   "sofa": {
     "display_name": "Cushion Seat",
@@ -17,7 +19,9 @@
     "rotation_increments_deg": 90,
     "scale": 2.45,
     "y_offset": 0.0,
-    "paint": "soft"
+    "paint": "soft",
+    "solid": true,
+    "collision_height": 1.1
   },
   "table": {
     "display_name": "Table",
@@ -27,7 +31,9 @@
     "rotation_increments_deg": 90,
     "scale": 2.1,
     "y_offset": 0.0,
-    "paint": "wood"
+    "paint": "wood",
+    "solid": true,
+    "collision_height": 0.95
   },
   "coffee_table": {
     "display_name": "Coffee Table",
@@ -37,7 +43,9 @@
     "rotation_increments_deg": 90,
     "scale": 2.2,
     "y_offset": 0.0,
-    "paint": "wood"
+    "paint": "wood",
+    "solid": true,
+    "collision_height": 0.55
   },
   "bed": {
     "display_name": "Bed",
@@ -47,7 +55,9 @@
     "rotation_increments_deg": 90,
     "scale": 1.55,
     "y_offset": 0.0,
-    "paint": "soft"
+    "paint": "soft",
+    "solid": true,
+    "collision_height": 0.7
   },
   "bookshelf": {
     "display_name": "Bookshelf",
@@ -57,7 +67,9 @@
     "rotation_increments_deg": 90,
     "scale": 1.85,
     "y_offset": 0.0,
-    "paint": "wood"
+    "paint": "wood",
+    "solid": true,
+    "collision_height": 1.9
   },
   "wardrobe": {
     "display_name": "Wardrobe",
@@ -67,7 +79,9 @@
     "rotation_increments_deg": 90,
     "scale": 1.75,
     "y_offset": 0.0,
-    "paint": "cool"
+    "paint": "cool",
+    "solid": true,
+    "collision_height": 2.0
   },
   "desk": {
     "display_name": "Desk",
@@ -77,7 +91,9 @@
     "rotation_increments_deg": 90,
     "scale": 2.0,
     "y_offset": 0.0,
-    "paint": "wood"
+    "paint": "wood",
+    "solid": true,
+    "collision_height": 0.95
   },
   "lamp": {
     "display_name": "Lamp",
@@ -87,7 +103,10 @@
     "rotation_increments_deg": 90,
     "scale": 2.15,
     "y_offset": 0.0,
-    "paint": "lamp"
+    "paint": "lamp",
+    "solid": true,
+    "collision_height": 1.2,
+    "collision_scale": 0.55
   },
   "plant": {
     "display_name": "Plant",
@@ -97,7 +116,10 @@
     "rotation_increments_deg": 90,
     "scale": 2.3,
     "y_offset": 0.0,
-    "paint": "plant"
+    "paint": "plant",
+    "solid": true,
+    "collision_height": 0.85,
+    "collision_scale": 0.6
   },
   "bear": {
     "display_name": "Teddy Bear",
@@ -107,7 +129,9 @@
     "rotation_increments_deg": 90,
     "scale": 1.15,
     "y_offset": 0.0,
-    "paint": "bear"
+    "paint": "bear",
+    "solid": false,
+    "collision_height": 0.5
   },
   "rug": {
     "display_name": "Rug",
@@ -118,6 +142,8 @@
     "scale": 1.8,
     "y_offset": 0.02,
     "paint": "soft",
-    "allow_overlap_floor": true
+    "allow_overlap_floor": true,
+    "solid": false,
+    "collision_height": 0.05
   }
 }

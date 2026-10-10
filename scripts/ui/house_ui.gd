@@ -43,6 +43,7 @@ var _catalog_open := false
 var _visit_open := false
 var _debug_hud := false
 var _players_cache: Array = []
+var panels := ExclusivePanels.new()
 
 
 func _ready() -> void:
@@ -50,6 +51,9 @@ func _ready() -> void:
 	_font = CozyTouchTheme.font()
 	_debug_hud = OS.get_environment("COZY_DEBUG_HUD") == "1"
 	_build()
+	panels.all_closed.connect(_on_panels_all_closed)
+	panels.opened.connect(_on_panel_opened)
+	panels.closed.connect(_on_panel_closed)
 	GameState.message.connect(show_toast)
 	_detect_touch()
 	get_viewport().size_changed.connect(_layout_touch)
@@ -166,8 +170,8 @@ func _build() -> void:
 		["Invite", COL_PINK, func(): NetClient.request_invite()],
 		["Visit", COL_ACCENT, open_visit_panel],
 		["Collab", COL_GREEN, _toggle_collab],
-		["Leave", COL_CORAL, func(): NetClient.leave_house()],
-		["Meadow", COL_ACCENT, func(): if world: world.go_voxel_world()],
+		["Leave", COL_CORAL, _leave_or_meadow],
+		["Meadow", COL_ACCENT, _return_to_meadow],
 	]:
 		var b := Button.new()
 		b.text = spec[0]
@@ -198,7 +202,6 @@ func _build() -> void:
 	root.add_child(hint)
 
 	catalog_panel = _panel(root, "Furniture", Vector2(540, 440))
-	catalog_panel.visible = false
 	var grid := GridContainer.new()
 	grid.name = "Grid"
 	grid.columns = 3
@@ -208,16 +211,10 @@ func _build() -> void:
 	var close_c := Button.new()
 	close_c.text = "Close"
 	_theme_button(close_c, Vector2(160, 48), COL_CORAL)
-	close_c.pressed.connect(func():
-		catalog_panel.visible = false
-		_catalog_open = false
-		if world:
-			world.player.capture_mouse()
-	)
+	close_c.pressed.connect(func(): panels.close("catalog"))
 	catalog_panel.get_node("Margin/VBox").add_child(close_c)
 
 	visit_panel = _panel(root, "Visit a friend", Vector2(420, 260))
-	visit_panel.visible = false
 	var vv: VBoxContainer = visit_panel.get_node("Margin/VBox")
 	invite_input = LineEdit.new()
 	invite_input.placeholder_text = "Invite code"
@@ -228,10 +225,7 @@ func _build() -> void:
 	_theme_button(join_btn, Vector2(200, 48), COL_GREEN)
 	join_btn.pressed.connect(func():
 		NetClient.join_invite(invite_input.text)
-		visit_panel.visible = false
-		_visit_open = false
-		if world:
-			world.player.capture_mouse()
+		panels.close("visit")
 	)
 	vv.add_child(join_btn)
 	var own_btn := Button.new()
@@ -239,12 +233,11 @@ func _build() -> void:
 	_theme_button(own_btn, Vector2(200, 48), COL_SKY)
 	own_btn.pressed.connect(func():
 		NetClient.enter_own_house()
-		visit_panel.visible = false
-		_visit_open = false
-		if world:
-			world.player.capture_mouse()
+		panels.close("visit")
 	)
 	vv.add_child(own_btn)
+	panels.register("catalog", catalog_panel)
+	panels.register("visit", visit_panel)
 
 	_build_touch(root)
 
@@ -283,7 +276,7 @@ func _build_touch(root: Control) -> void:
 	touch_layer.add_child(cluster)
 
 	place_btn = _action_btn("Place", COL_SKY, "res://assets/ui/icons/icon_place.png")
-	rotate_btn = _action_btn("Rotate", COL_PINK, "")
+	rotate_btn = _action_btn("Rotate", COL_PINK, "res://assets/ui/icons/icon_rotate.png")
 	cancel_btn = _action_btn("Cancel", COL_CORAL, "res://assets/ui/icons/icon_break.png")
 	jump_btn = _action_btn("Jump", COL_GREEN, "res://assets/ui/icons/icon_jump.png")
 	place_btn.pressed.connect(func():
@@ -485,10 +478,14 @@ func refresh_roster_from(players: Array) -> void:
 
 
 func open_catalog() -> void:
-	_catalog_open = true
-	catalog_panel.visible = true
-	if world:
-		world.player.release_mouse()
+	## Toggle: second tap closes; opening Catalog closes Visit (and vice versa).
+	if panels.is_open("catalog"):
+		panels.close("catalog")
+		return
+	panels.open("catalog")
+
+
+func _populate_catalog() -> void:
 	var grid: GridContainer = catalog_panel.get_node("Margin/VBox/Grid")
 	for c in grid.get_children():
 		c.queue_free()
@@ -500,8 +497,7 @@ func open_catalog() -> void:
 		_theme_button(b, Vector2(150, 72), COL_PANEL)
 		var def_id := id
 		b.pressed.connect(func():
-			catalog_panel.visible = false
-			_catalog_open = false
+			panels.close("catalog")
 			if world:
 				world.start_place(def_id)
 		)
@@ -509,10 +505,49 @@ func open_catalog() -> void:
 
 
 func open_visit_panel() -> void:
-	_visit_open = true
-	visit_panel.visible = true
-	if world:
+	if panels.is_open("visit"):
+		panels.close("visit")
+		return
+	panels.open("visit")
+
+
+func _on_panel_opened(id: String) -> void:
+	_catalog_open = panels.is_open("catalog")
+	_visit_open = panels.is_open("visit")
+	if world and world.player:
 		world.player.release_mouse()
+	if id == "catalog":
+		_populate_catalog()
+
+
+func _on_panel_closed(_id: String) -> void:
+	_catalog_open = panels.is_open("catalog")
+	_visit_open = panels.is_open("visit")
+
+
+func _on_panels_all_closed() -> void:
+	_catalog_open = false
+	_visit_open = false
+	if world and world.player and not (touch_layer and touch_layer.visible):
+		world.player.capture_mouse()
+
+
+func _return_to_meadow() -> void:
+	panels.close_all()
+	if world and world.has_method("go_voxel_world"):
+		world.go_voxel_world()
+	else:
+		SceneFlow.return_to_meadow()
+
+
+func _leave_or_meadow() -> void:
+	## Leave an invite visit when connected; otherwise return to the meadow.
+	panels.close_all()
+	if not NetClient.current_house.is_empty() and NetClient.current_role != "Owner":
+		NetClient.leave_house()
+		NetClient.enter_own_house()
+		return
+	_return_to_meadow()
 
 
 func _toggle_collab() -> void:

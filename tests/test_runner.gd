@@ -20,6 +20,12 @@ func _ready() -> void:
 	await _test_house_persistence()
 	_test_duplicate_and_isolation()
 	await _test_house_ui_mouse_filters()
+	_test_exclusive_panels()
+	await _test_meadow_house_exclusive_menus()
+	_test_furniture_collision_flags()
+	_test_creative_flight_gates()
+	await _test_house_floor_collision()
+	_test_player_proportions()
 	await _test_world_serialize()
 	await _test_chunk_mesh_update()
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
@@ -343,8 +349,148 @@ func _test_house_ui_mouse_filters() -> void:
 	_assert(hint != null and hint.mouse_filter == Control.MOUSE_FILTER_IGNORE, "HouseUI hint ignores mouse")
 	_assert(card != null and card.mouse_filter == Control.MOUSE_FILTER_IGNORE, "StatusCard ignores mouse")
 	_assert(ui.debug_box != null and ui.debug_box.visible == false, "debug HUD hidden by default")
+	_assert(ui.rotate_btn != null, "rotate button exists")
+	_assert(ui.rotate_btn.icon_path.find("icon_rotate") >= 0, "rotate button has rotate icon")
 	ui.queue_free()
 	await get_tree().process_frame
+
+
+func _test_exclusive_panels() -> void:
+	var host := ExclusivePanels.new()
+	var a := PanelContainer.new()
+	var b := PanelContainer.new()
+	var c := PanelContainer.new()
+	add_child(a)
+	add_child(b)
+	add_child(c)
+	host.register("a", a)
+	host.register("b", b)
+	host.register("c", c)
+	_assert(not host.is_open(), "exclusive starts closed")
+	host.open("a")
+	_assert(a.visible and not b.visible and not c.visible, "open a only")
+	host.open("b")
+	_assert(not a.visible and b.visible and not c.visible, "open b closes a")
+	_assert(host.toggle("b") == false, "toggle active closes")
+	_assert(not host.is_open() and not b.visible, "all closed after toggle")
+	host.toggle("c")
+	_assert(host.active_id() == "c" and c.visible, "toggle opens c")
+	host.open("a")
+	_assert(a.visible and not c.visible, "open a closes c")
+	host.close_all()
+	_assert(not a.visible and not b.visible and not c.visible, "close_all hides all")
+	a.queue_free()
+	b.queue_free()
+	c.queue_free()
+
+
+func _test_meadow_house_exclusive_menus() -> void:
+	var meadow := GameUi.new()
+	add_child(meadow)
+	await get_tree().process_frame
+	meadow.toggle_inventory()
+	_assert(meadow.inventory_panel.visible and not meadow.craft_panel.visible, "bag open alone")
+	meadow.toggle_craft()
+	_assert(meadow.craft_panel.visible and not meadow.inventory_panel.visible, "craft closes bag")
+	meadow.toggle_menu()
+	_assert(meadow.menu_panel.visible and not meadow.craft_panel.visible, "menu closes craft")
+	meadow.request_reset()
+	_assert(meadow.confirm_panel.visible and not meadow.menu_panel.visible, "confirm closes menu")
+	meadow.confirm_reset_no()
+	_assert(not meadow.confirm_panel.visible and not meadow.panels.is_open(), "confirm close clears host")
+	meadow.toggle_inventory()
+	meadow.toggle_inventory()
+	_assert(not meadow.inventory_panel.visible, "bag toggles closed")
+	meadow.queue_free()
+	await get_tree().process_frame
+
+	var house := HouseUi.new()
+	add_child(house)
+	await get_tree().process_frame
+	house.open_catalog()
+	_assert(house.catalog_panel.visible and not house.visit_panel.visible, "catalog open alone")
+	house.open_visit_panel()
+	_assert(house.visit_panel.visible and not house.catalog_panel.visible, "visit closes catalog")
+	house.open_visit_panel()
+	_assert(not house.visit_panel.visible, "visit toggles closed")
+	house.open_catalog()
+	house.open_catalog()
+	_assert(not house.catalog_panel.visible, "catalog toggles closed")
+	house.queue_free()
+	await get_tree().process_frame
+
+
+func _test_furniture_collision_flags() -> void:
+	_assert(FurnitureDB.is_solid("chair"), "chair solid")
+	_assert(FurnitureDB.is_solid("table"), "table solid")
+	_assert(FurnitureDB.is_solid("bookshelf"), "bookshelf solid")
+	_assert(not FurnitureDB.is_solid("rug"), "rug not solid")
+	_assert(not FurnitureDB.is_solid("bear"), "bear not solid")
+	_assert(FurnitureDB.collision_height("wardrobe") >= 1.8, "wardrobe tall collider")
+	var vis := FurnitureVisual.new()
+	add_child(vis)
+	vis.setup({
+		"instance_id": "t_chair",
+		"def_id": "chair",
+		"cell_x": 2,
+		"cell_z": 2,
+		"rotation": 0,
+	}, Vector3.ZERO, 0.0)
+	_assert(vis.has_blocking_collision(), "chair visual has blocking body")
+	var rug := FurnitureVisual.new()
+	add_child(rug)
+	rug.setup({
+		"instance_id": "t_rug",
+		"def_id": "rug",
+		"cell_x": 4,
+		"cell_z": 4,
+		"rotation": 0,
+	}, Vector3.ZERO, 0.0)
+	_assert(not rug.has_blocking_collision(), "rug visual non-blocking")
+	vis.queue_free()
+	rug.queue_free()
+
+
+func _test_creative_flight_gates() -> void:
+	GameState.set_creative(true)
+	GameState.set_flying(true)
+	_assert(GameState.flying, "creative can fly")
+	GameState.set_creative(false)
+	_assert(not GameState.flying, "leaving creative disables flight")
+	GameState.set_flying(true)
+	_assert(not GameState.flying, "limited mode rejects flight")
+	GameState.set_creative(true)
+
+
+func _test_house_floor_collision() -> void:
+	var space := HouseSpace.new()
+	var furn := Node3D.new()
+	furn.name = "FurnitureRoot"
+	space.add_child(furn)
+	var players := Node3D.new()
+	players.name = "PlayersRoot"
+	space.add_child(players)
+	add_child(space)
+	await get_tree().process_frame
+	_assert(space.floor_collision_count() >= 2, "floor + apron static bodies")
+	var spawn := space.spawn_position()
+	_assert(is_equal_approx(spawn.y, HouseSpace.FLOOR_Y), "spawn on floor y")
+	# Ray from above spawn should hit the floor slab.
+	var from := spawn + Vector3(0, 2.0, 0)
+	var to := spawn + Vector3(0, -2.0, 0)
+	var q := PhysicsRayQueryParameters3D.create(from, to)
+	q.collision_mask = 1
+	var hit := space.get_world_3d().direct_space_state.intersect_ray(q)
+	_assert(not hit.is_empty(), "floor ray hits collision")
+	_assert(float(hit.get("position", Vector3.ZERO).y) <= 0.05, "floor hit near y=0")
+	space.queue_free()
+	await get_tree().process_frame
+
+
+func _test_player_proportions() -> void:
+	_assert(is_equal_approx(PlayerController.CAPSULE_HEIGHT, 1.8), "FP capsule height 1.8")
+	_assert(is_equal_approx(ThirdPersonController.CAPSULE_HEIGHT, 1.8), "TP capsule height 1.8")
+	_assert(ThirdPersonController.MODEL_SCALE >= 0.85, "avatar scale raised from 0.62")
 
 
 func _make_world() -> VoxelWorld:

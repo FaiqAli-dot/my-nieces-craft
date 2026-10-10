@@ -87,6 +87,10 @@ COZY_SMOKE=1 COZY_SMOKE_QUIT=1 xvfb-run -a godot --path . \
 | Inventory | I / Tab | Bag |
 | Craft | C | Craft |
 | My House | Menu → My House | Menu → My House |
+| Creative flight | F toggle; Space up; Ctrl/Shift down | Fly / Land; Up / Down while flying |
+| Creative mode | G or top-bar button | Top-bar Creative chip |
+
+Only one of Bag / Craft / Menu is open at a time (opening one closes the others).
 
 ### House
 
@@ -101,9 +105,14 @@ COZY_SMOKE=1 COZY_SMOKE_QUIT=1 xvfb-run -a godot --path . \
 | Select furniture | Click | — |
 | Move / remove | E / X | — |
 | Invite / Visit / Collab | HUD buttons | HUD buttons |
+| Return to meadow | Meadow (or Leave from own house) | Meadow |
+
+Catalog and Visit are exclusive panels (same single-open rule as the meadow menus).
 
 ## Docs
 
+- `docs/PHASE16.md` — Phase 1.6 collision / transitions / flight
+- `docs/SURVIVAL_READINESS.md` — Survival prep (not implemented yet)
 - `docs/PHASE2.md` — Phase 2 architecture & base-branch rationale
 - `docs/ARCHITECTURE.md` — Phase 1 voxel architecture
 - `docs/ART_DIRECTION.md` — Sunny Toy Meadow

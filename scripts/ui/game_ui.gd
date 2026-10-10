@@ -3,9 +3,11 @@ class_name GameUi
 ## Kid-friendly Sunny Toy Meadow HUD — modular touch controls + polished chrome.
 
 var player: PlayerController
+## Legacy bools kept in sync with ExclusivePanels for older tests.
 var _inventory_open := false
 var _craft_open := false
 var _menu_open := false
+var panels := ExclusivePanels.new()
 
 ## Hotbar container (HBox of slot buttons) — kept for place_ui_regression compat.
 var hotbar: HBoxContainer
@@ -28,6 +30,10 @@ var top_row: HBoxContainer
 var bag_btn: Button
 var craft_top_btn: Button
 var menu_btn: Button
+var fly_btn: ActionButton
+var fly_up_btn: ActionButton
+var fly_down_btn: ActionButton
+var _fly_cluster: Control
 
 var _toast_timer := 0.0
 var _font: Font
@@ -46,14 +52,21 @@ func _ready() -> void:
 	_font = CozyTouchTheme.font()
 	_theme = CozyTouchTheme.build_theme()
 	_build_ui()
+	panels.all_closed.connect(_on_panels_all_closed)
+	panels.opened.connect(_on_panel_opened)
+	panels.closed.connect(_on_panel_closed)
 	GameState.creative_changed.connect(_on_creative)
+	GameState.flight_changed.connect(_on_flight)
 	GameState.inventory_changed.connect(refresh_hotbar)
 	GameState.hotbar_changed.connect(func(_i): refresh_hotbar())
 	GameState.message.connect(show_toast)
 	_on_creative(GameState.creative_mode)
+	_on_flight(GameState.flying)
 	_detect_touch()
 	get_viewport().size_changed.connect(_layout_hotbar)
+	get_viewport().size_changed.connect(_layout_fly_controls)
 	_layout_hotbar()
+	_layout_fly_controls()
 
 
 func bind_player(p: PlayerController) -> void:
@@ -206,7 +219,6 @@ func _build_ui() -> void:
 	hotbar = hotbar_tray.slots_box
 
 	inventory_panel = _make_panel(_root, "Bag", Vector2(420, 300))
-	inventory_panel.visible = false
 	var inv_v: VBoxContainer = inventory_panel.get_node("Margin/VBox")
 	var grid := GridContainer.new()
 	grid.name = "Grid"
@@ -214,14 +226,12 @@ func _build_ui() -> void:
 	inv_v.add_child(grid)
 
 	craft_panel = _make_panel(_root, "Craft", Vector2(460, 340))
-	craft_panel.visible = false
 	var craft_v: VBoxContainer = craft_panel.get_node("Margin/VBox")
 	craft_list = VBoxContainer.new()
 	craft_list.name = "List"
 	craft_v.add_child(craft_list)
 
 	menu_panel = _make_panel(_root, "Menu", Vector2(360, 400))
-	menu_panel.visible = false
 	var menu_v: VBoxContainer = menu_panel.get_node("Margin/VBox")
 	for spec in [
 		["Save", save_game],
@@ -238,7 +248,6 @@ func _build_ui() -> void:
 		menu_v.add_child(b)
 
 	confirm_panel = _make_panel(_root, "Reset world?", Vector2(380, 220))
-	confirm_panel.visible = false
 	var conf_v: VBoxContainer = confirm_panel.get_node("Margin/VBox")
 	var q := Label.new()
 	q.text = "Clear all blocks?"
@@ -258,6 +267,11 @@ func _build_ui() -> void:
 	_theme_button(no, Vector2(120, 52), COL_GREEN)
 	no.pressed.connect(confirm_reset_no)
 	row.add_child(no)
+	panels.register("inventory", inventory_panel)
+	panels.register("craft", craft_panel)
+	panels.register("menu", menu_panel)
+	panels.register("confirm", confirm_panel)
+	_build_fly_controls()
 
 
 func _layout_hotbar() -> void:
@@ -356,6 +370,7 @@ func _detect_touch() -> void:
 	if touch_controls:
 		move_stick = touch_controls.joystick
 		look_pad = touch_controls.look_area
+	_layout_fly_controls()
 
 
 func _process(delta: float) -> void:
@@ -417,20 +432,40 @@ func _build_craft_list() -> void:
 
 
 func toggle_inventory() -> void:
-	_inventory_open = not _inventory_open
-	inventory_panel.visible = _inventory_open
-	if _inventory_open:
+	if panels.toggle("inventory"):
 		_refresh_inventory_panel()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	else:
-		_restore_play_mouse()
+
+
+func _sync_panel_flags() -> void:
+	_inventory_open = panels.is_open("inventory")
+	_craft_open = panels.is_open("craft")
+	_menu_open = panels.is_open("menu")
+
+
+func _on_panel_opened(id: String) -> void:
+	_sync_panel_flags()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if id == "inventory":
+		_refresh_inventory_panel()
+	elif id == "craft":
+		_build_craft_list()
+
+
+func _on_panel_closed(_id: String) -> void:
+	_sync_panel_flags()
+
+
+func _on_panels_all_closed() -> void:
+	_sync_panel_flags()
+	_restore_play_mouse()
 
 
 func _restore_play_mouse() -> void:
 	## Return to captured look after closing Bag/Craft/Menu (desktop place/break need it).
-	if _inventory_open or _craft_open or _menu_open or confirm_panel.visible:
+	if panels.is_open():
 		return
-	if touch_layer.visible:
+	if touch_layer and touch_layer.visible:
 		return
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -453,22 +488,79 @@ func _refresh_inventory_panel() -> void:
 
 
 func toggle_craft() -> void:
-	_craft_open = not _craft_open
-	craft_panel.visible = _craft_open
-	if _craft_open:
+	if panels.toggle("craft"):
 		_build_craft_list()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	else:
-		_restore_play_mouse()
 
 
 func toggle_menu() -> void:
-	_menu_open = not _menu_open
-	menu_panel.visible = _menu_open
-	if _menu_open:
+	if panels.toggle("menu"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	else:
-		_restore_play_mouse()
+
+
+func _build_fly_controls() -> void:
+	_fly_cluster = Control.new()
+	_fly_cluster.name = "FlyControls"
+	_fly_cluster.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fly_cluster.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_root.add_child(_fly_cluster)
+	fly_btn = ActionButton.new()
+	fly_btn.show_label = true
+	fly_btn.configure("FlyButton", COL_SKY, "res://assets/ui/icons/icon_fly.png", "Fly", 0.0)
+	fly_btn.pressed.connect(func(): GameState.toggle_flying())
+	fly_up_btn = ActionButton.new()
+	fly_up_btn.show_label = true
+	fly_up_btn.configure("FlyUpButton", COL_GREEN, "res://assets/ui/icons/icon_fly_up.png", "Up", 0.0)
+	fly_down_btn = ActionButton.new()
+	fly_down_btn.show_label = true
+	fly_down_btn.configure("FlyDownButton", COL_PINK, "res://assets/ui/icons/icon_fly_down.png", "Down", 0.0)
+	fly_up_btn.action_pressed.connect(func(): if player: player.set_touch_fly_vertical(1.0))
+	fly_up_btn.action_released.connect(func(): if player: player.set_touch_fly_vertical(0.0))
+	fly_down_btn.action_pressed.connect(func(): if player: player.set_touch_fly_vertical(-1.0))
+	fly_down_btn.action_released.connect(func(): if player: player.set_touch_fly_vertical(0.0))
+	for b in [fly_btn, fly_up_btn, fly_down_btn]:
+		_fly_cluster.add_child(b)
+
+
+func _layout_fly_controls() -> void:
+	if _fly_cluster == null or fly_btn == null:
+		return
+	var show_touch := touch_layer != null and touch_layer.visible
+	var creative := GameState.creative_mode
+	_fly_cluster.visible = show_touch and creative
+	if not _fly_cluster.visible:
+		return
+	var vp := get_viewport().get_visible_rect().size
+	var scale := clampf(minf(vp.x, vp.y) / 828.0, 0.85, 1.45)
+	var sz := 72.0 * scale
+	var gap := 8.0 * scale
+	var flying := GameState.flying
+	fly_up_btn.visible = flying
+	fly_down_btn.visible = flying
+	var count := 3 if flying else 1
+	var total_h := sz * float(count) + gap * float(count - 1)
+	_fly_cluster.anchor_left = 0.0
+	_fly_cluster.anchor_top = 1.0
+	_fly_cluster.anchor_right = 0.0
+	_fly_cluster.anchor_bottom = 1.0
+	# Sit above the joystick so kids can reach Fly / Up / Down without covering MOVE.
+	_fly_cluster.offset_left = 16.0 * scale
+	_fly_cluster.offset_right = 16.0 * scale + sz
+	_fly_cluster.offset_top = -total_h - 190.0 * scale
+	_fly_cluster.offset_bottom = -190.0 * scale
+	var y := 0.0
+	for btn in [fly_up_btn, fly_btn, fly_down_btn]:
+		if btn == null or not btn.visible:
+			continue
+		btn.button_size = sz
+		btn.custom_minimum_size = Vector2(sz, sz)
+		btn.size = Vector2(sz, sz)
+		btn.position = Vector2(0, y)
+		if btn.has_method("_layout_children"):
+			btn._layout_children()
+		if btn.has_method("_apply_style"):
+			btn._apply_style(false)
+		y += sz + gap
 
 
 func _on_creative(enabled: bool) -> void:
@@ -479,6 +571,21 @@ func _on_creative(enabled: bool) -> void:
 	mode_btn.add_theme_stylebox_override("hover", _sb(bg.lightened(0.08), 18, Color(1, 1, 1, 0.95), 3))
 	mode_btn.add_theme_stylebox_override("pressed", _sb(bg.darkened(0.1), 18, COL_INK, 4))
 	refresh_hotbar()
+	_layout_fly_controls()
+
+
+func _on_flight(enabled: bool) -> void:
+	if fly_btn:
+		fly_btn.configure(
+			"FlyButton",
+			COL_GREEN if enabled else COL_SKY,
+			"res://assets/ui/icons/icon_fly.png",
+			"Land" if enabled else "Fly",
+			0.0
+		)
+	if player and not enabled:
+		player.set_touch_fly_vertical(0.0)
+	_layout_fly_controls()
 
 
 func show_toast(text: String) -> void:
@@ -487,12 +594,12 @@ func show_toast(text: String) -> void:
 
 
 func request_reset() -> void:
-	confirm_panel.visible = true
+	panels.open("confirm")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func confirm_reset_yes() -> void:
-	confirm_panel.visible = false
+	panels.close("confirm")
 	if player:
 		player.world.reset_world()
 		# Re-dress meadow props after voxel reset
@@ -500,10 +607,11 @@ func confirm_reset_yes() -> void:
 		dresser.dress(player.world.get_parent())
 		player.reset_to_spawn()
 		GameState.toast("World reset!")
+	_restore_play_mouse()
 
 
 func confirm_reset_no() -> void:
-	confirm_panel.visible = false
+	panels.close("confirm")
 	_restore_play_mouse()
 
 
@@ -525,4 +633,5 @@ func load_game() -> void:
 
 func go_to_house() -> void:
 	## Phase 2: leave the meadow sandbox for the third-person house scene.
-	get_tree().change_scene_to_file("res://scenes/house/house.tscn")
+	panels.close_all()
+	SceneFlow.go_to_house(player)
