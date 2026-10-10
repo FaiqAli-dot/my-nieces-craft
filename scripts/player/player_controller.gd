@@ -64,6 +64,18 @@ func _setup_highlights() -> void:
 	place_preview.visible = false
 
 
+func _input(event: InputEvent) -> void:
+	## Handle break/place while captured so HUD decorations can't swallow center clicks.
+	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		return
+	if event.is_action_pressed("break_block"):
+		try_break()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("place_block"):
+		try_place()
+		get_viewport().set_input_as_handled()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		look_yaw -= event.relative.x * MOUSE_SENS
@@ -81,10 +93,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	for i in 8:
 		if event.is_action_pressed("hotbar_%d" % (i + 1)):
 			inventory.select(i)
-	if event.is_action_pressed("break_block"):
-		try_break()
-	if event.is_action_pressed("place_block"):
-		try_place()
+	# Visible-mouse fallback (e.g. after UI) — still allow place/break off-HUD.
+	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		if event.is_action_pressed("break_block"):
+			try_break()
+		if event.is_action_pressed("place_block"):
+			try_place()
 
 
 func _physics_process(delta: float) -> void:

@@ -17,6 +17,10 @@ func _ready() -> void:
 		var harness := Node.new()
 		harness.set_script(load("res://scripts/devtools/screenshot_harness.gd"))
 		add_child(harness)
+	if OS.get_environment("COZY_PLACE_UI_TEST") == "1":
+		var place_test := Node.new()
+		place_test.set_script(load("res://scripts/devtools/place_ui_regression.gd"))
+		add_child(place_test)
 	if OS.get_environment("COZY_SMOKE") == "1":
 		await get_tree().create_timer(1.5).timeout
 		_run_smoke()

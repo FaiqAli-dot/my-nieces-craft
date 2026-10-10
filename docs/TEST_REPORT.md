@@ -42,6 +42,22 @@ godot --path . --resolution 1280x720 \
 | Craft `wood_to_planks` | PASS |
 | Save world | PASS |
 
+## Place-via-UI regression (`COZY_PLACE_UI_TEST=1`)
+
+Drives placement through real input/UI (not `world.set_block`):
+
+| Check | Result |
+|-------|--------|
+| Crosshair `mouse_filter` ignore | PASS |
+| No HUD STOP control at screen center | PASS |
+| Hotbar UI selects wood | PASS |
+| Right-click `Viewport.push_input` places wood | PASS |
+| Touch Place button places wood | PASS |
+
+Screenshot: `/opt/cursor/artifacts/screenshots/phase1_5_final/12_place_wood_via_ui.png`
+
+**Root cause (fixed):** Phase 1.5 HUD crosshair `ColorRect` used default `MOUSE_FILTER_STOP` at screen center, swallowing captured-mouse left/right clicks so desktop place/break never reached the player. Smoke previously called `set_block` directly and missed this.
+
 ## Screenshots
 
 After shots: `/opt/cursor/artifacts/screenshots/phase1_5_after/`  
