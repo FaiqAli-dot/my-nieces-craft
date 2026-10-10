@@ -139,7 +139,7 @@ func _test_crosshair_does_not_block_clicks() -> void:
 
 
 func _test_virtual_joystick_and_look() -> void:
-	var joy := VirtualJoystick.new()
+	var joy := TouchJoystick.new()
 	joy.size = Vector2(200, 200)
 	add_child(joy)
 	await get_tree().process_frame

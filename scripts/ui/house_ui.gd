@@ -28,7 +28,7 @@ var catalog_panel: PanelContainer
 var visit_panel: PanelContainer
 var invite_input: LineEdit
 var touch_layer: Control
-var joystick: VirtualJoystick
+var joystick: TouchJoystick
 var look_area: LookArea
 ## Legacy aliases for touch regression / harnesses.
 var move_stick: Control
@@ -269,7 +269,7 @@ func _build_touch(root: Control) -> void:
 	touch_layer.add_child(look_area)
 	look_pad = look_area
 
-	joystick = VirtualJoystick.new()
+	joystick = TouchJoystick.new()
 	joystick.name = "Joystick"
 	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	joystick.move_changed.connect(_on_move_changed)

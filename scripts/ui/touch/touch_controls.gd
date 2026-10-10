@@ -20,7 +20,7 @@ signal craft_pressed
 ## When set via env COZY_SAFE_INSET="L,T,R,B", overrides DisplayServer safe area simulation.
 @export var simulate_safe_insets: Vector4 = Vector4.ZERO
 
-var joystick: VirtualJoystick
+var joystick: TouchJoystick
 var look_area: LookArea
 var actions: TouchActionCluster
 var _margin: MarginContainer
@@ -80,7 +80,7 @@ func _build() -> void:
 	look_area.look_delta.connect(func(v): look_delta.emit(v))
 	_root.add_child(look_area)
 
-	joystick = VirtualJoystick.new()
+	joystick = TouchJoystick.new()
 	joystick.name = "Joystick"
 	joystick.dead_zone = joystick_dead_zone
 	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)

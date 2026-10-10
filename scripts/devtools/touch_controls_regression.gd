@@ -35,7 +35,7 @@ func _run() -> void:
 	await get_tree().process_frame
 
 	_assert(ui.touch_controls != null and ui.touch_controls.visible, "touch controls visible")
-	var joy: VirtualJoystick = ui.touch_controls.joystick
+	var joy: TouchJoystick = ui.touch_controls.joystick
 	var look: LookArea = ui.touch_controls.look_area
 	var actions: TouchActionCluster = ui.touch_controls.actions
 	_assert(joy != null and look != null and actions != null, "joystick/look/actions exist")
@@ -53,7 +53,7 @@ func _run() -> void:
 			if c.mouse_filter == Control.MOUSE_FILTER_IGNORE:
 				continue
 			# Interactive touch widgets may exist, but must not cover dead-center play area.
-			if c is VirtualJoystick or c is LookArea or c is ActionButton or c is TouchHotbar or c is TouchActionCluster:
+			if c is TouchJoystick or c is LookArea or c is ActionButton or c is TouchHotbar or c is TouchActionCluster:
 				continue
 			if c.get_global_rect().has_point(center):
 				print("FAIL detail: blocking ", c.get_path(), " filter=", c.mouse_filter)

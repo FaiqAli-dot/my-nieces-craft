@@ -1,5 +1,5 @@
 extends Control
-class_name VirtualJoystick
+class_name TouchJoystick
 ## On-screen analog joystick. Emits a unit vector for player movement.
 ## Tracks a single finger index so it never steals look/action touches.
 
@@ -77,7 +77,7 @@ func _layout() -> void:
 	_base.position = center - _base.size * 0.5
 	# Keep caption inside control bounds (above bottom edge).
 	_caption.size = Vector2(base_diameter, 20)
-	var caption_y := mini(_base.position.y + base_diameter + 2.0, size.y - 20.0)
+	var caption_y := minf(_base.position.y + base_diameter + 2.0, size.y - 20.0)
 	_caption.position = Vector2(center.x - base_diameter * 0.5, caption_y)
 	_reset_knob(_active)
 
@@ -148,8 +148,8 @@ func _update(local_pos: Vector2) -> void:
 		_set_vector(Vector2.ZERO)
 	else:
 		# Rescale so dead zone maps to 0 and edge maps to 1.
-		var len := (raw.length() - dead_zone) / (1.0 - dead_zone)
-		_set_vector(raw.normalized() * clampf(len, 0.0, 1.0))
+		var mag := (raw.length() - dead_zone) / (1.0 - dead_zone)
+		_set_vector(raw.normalized() * clampf(mag, 0.0, 1.0))
 
 
 func _end() -> void:

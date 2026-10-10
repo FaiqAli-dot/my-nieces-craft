@@ -50,7 +50,7 @@ Any non-interactive full-screen or center `Control` (toast, hint, crosshair) **m
 ## Mobile touch HUD (merged from main / PR #7)
 
 House UI reuses shared primitives under `scripts/ui/touch/` and `scenes/ui/touch/`:
-`VirtualJoystick`, `LookArea`, `ActionButton`, `CozyTouchTheme`. Meadow `GameUi` keeps the full `TouchControls` cluster; the house scene composes joystick + look + Place/Rotate/Cancel/Jump action buttons.
+`TouchJoystick`, `LookArea`, `ActionButton`, `CozyTouchTheme`. Meadow `GameUi` keeps the full `TouchControls` cluster; the house scene composes joystick + look + Place/Rotate/Cancel/Jump action buttons.
 
 ## Voxel face-culling (merged from PR #6)
 

@@ -35,7 +35,7 @@ func _ready() -> void:
 		if ui.touch_controls.actions.craft_btn.visible:
 			ui.touch_controls.actions.craft_btn.set_pressed_visual(true)
 	elif mode == "joystick" and ui.touch_controls and ui.touch_controls.joystick:
-		var joy: VirtualJoystick = ui.touch_controls.joystick
+		var joy: TouchJoystick = ui.touch_controls.joystick
 		var center := joy.size * 0.5
 		joy.simulate_touch(0, center, true)
 		joy.simulate_drag(0, center + Vector2(48, -36))
