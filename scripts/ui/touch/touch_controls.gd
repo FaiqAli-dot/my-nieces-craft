@@ -19,6 +19,10 @@ signal craft_pressed
 @export var extra_safe_insets: Vector4 = Vector4(12, 8, 12, 12)
 ## When set via env COZY_SAFE_INSET="L,T,R,B", overrides DisplayServer safe area simulation.
 @export var simulate_safe_insets: Vector4 = Vector4.ZERO
+## Touch-anywhere left movement zone (shared VirtualJoystick floating mode).
+@export var floating_joystick: bool = true
+## Fraction of the safe area width used as the left movement zone (0.35–0.5).
+@export var move_zone_width_fraction: float = 0.42
 
 var joystick: VirtualJoystick
 var look_area: LookArea
@@ -83,6 +87,7 @@ func _build() -> void:
 	joystick = VirtualJoystick.new()
 	joystick.name = "Joystick"
 	joystick.dead_zone = joystick_dead_zone
+	joystick.floating_mode = floating_joystick
 	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	joystick.move_changed.connect(func(v): move_changed.emit(v))
 	_root.add_child(joystick)
@@ -138,22 +143,11 @@ func _on_viewport_resized() -> void:
 	var scale := clampf(short_side / 828.0, 0.85, 1.55)
 	var joy_d := 132.0 * scale
 	var joy_pad := 28.0 * scale
-	var joy_size := Vector2(joy_d + joy_pad * 2.0, joy_d + joy_pad * 2.0 + 22.0 * scale)
+	joystick.floating_mode = floating_joystick
 	joystick.base_diameter = joy_d
 	joystick.knob_diameter = 56.0 * scale
 	joystick.activation_padding = joy_pad
-	joystick.custom_minimum_size = joy_size
-	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	joystick.anchor_left = 0.0
-	joystick.anchor_top = 1.0
-	joystick.anchor_right = 0.0
-	joystick.anchor_bottom = 1.0
-	joystick.offset_left = 4.0
-	joystick.offset_top = -joy_size.y - 8.0
-	joystick.offset_right = 4.0 + joy_size.x
-	joystick.offset_bottom = -8.0
-	if joystick.has_method("_layout"):
-		joystick._layout()
+	_layout_joystick_zone(phone_like, scale, joy_d, joy_pad)
 
 	actions.set_compact(phone_like)
 	# Jump is clearly the largest target.
@@ -173,8 +167,43 @@ func _on_viewport_resized() -> void:
 	if actions.has_method("_layout"):
 		actions._layout()
 
-	# Keep look zone clear of the hotbar band.
+	# Keep look zone clear of the hotbar / top-bar bands; start past mid-screen.
+	look_area.anchor_left = 0.55
+	look_area.offset_top = (72.0 if phone_like else 88.0) * scale
 	look_area.offset_bottom = (-100.0 if phone_like else -130.0) * scale
+
+
+func _layout_joystick_zone(phone_like: bool, scale: float, joy_d: float, joy_pad: float) -> void:
+	## Left movement zone excludes top-bar chips and the hotbar band so those
+	## taps never spawn the stick. Look / action clusters stay on the right.
+	var top_clear := (76.0 if phone_like else 92.0) * scale
+	var bottom_clear := (108.0 if phone_like else 136.0) * scale
+	if floating_joystick:
+		var frac := clampf(move_zone_width_fraction, 0.35, 0.48)
+		joystick.custom_minimum_size = Vector2.ZERO
+		joystick.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+		joystick.anchor_left = 0.0
+		joystick.anchor_top = 0.0
+		joystick.anchor_right = frac
+		joystick.anchor_bottom = 1.0
+		joystick.offset_left = 4.0
+		joystick.offset_top = top_clear
+		joystick.offset_right = 0.0
+		joystick.offset_bottom = -bottom_clear
+	else:
+		var joy_size := Vector2(joy_d + joy_pad * 2.0, joy_d + joy_pad * 2.0 + 22.0 * scale)
+		joystick.custom_minimum_size = joy_size
+		joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+		joystick.anchor_left = 0.0
+		joystick.anchor_top = 1.0
+		joystick.anchor_right = 0.0
+		joystick.anchor_bottom = 1.0
+		joystick.offset_left = 4.0
+		joystick.offset_top = -joy_size.y - 8.0
+		joystick.offset_right = 4.0 + joy_size.x
+		joystick.offset_bottom = -8.0
+	if joystick.has_method("_layout"):
+		joystick._layout()
 
 
 func get_action_button(action_name: String) -> ActionButton:

@@ -44,6 +44,10 @@ var _visit_open := false
 var _debug_hud := false
 var _players_cache: Array = []
 var panels := ExclusivePanels.new()
+## Match meadow TouchControls: floating left zone vs fixed bottom-left stick.
+var floating_joystick: bool = true
+var move_zone_width_fraction: float = 0.42
+var _top_actions: HBoxContainer
 
 
 func _ready() -> void:
@@ -161,10 +165,11 @@ func _build() -> void:
 	for l in [status_label, role_label, collab_label, invite_label, roster_label]:
 		debug_box.add_child(l)
 
-	var actions := HBoxContainer.new()
-	actions.position = Vector2(350, 16)
-	actions.add_theme_constant_override("separation", 8)
-	root.add_child(actions)
+	_top_actions = HBoxContainer.new()
+	_top_actions.name = "TopActions"
+	_top_actions.position = Vector2(350, 16)
+	_top_actions.add_theme_constant_override("separation", 8)
+	root.add_child(_top_actions)
 	for spec in [
 		["Catalog", COL_SKY, open_catalog],
 		["Invite", COL_PINK, func(): NetClient.request_invite()],
@@ -177,7 +182,7 @@ func _build() -> void:
 		b.text = spec[0]
 		_theme_button(b, Vector2(110, 48), spec[1])
 		b.pressed.connect(spec[2])
-		actions.add_child(b)
+		_top_actions.add_child(b)
 
 	toast_label = _lab("", 26)
 	toast_label.name = "Toast"
@@ -239,7 +244,13 @@ func _build() -> void:
 	panels.register("catalog", catalog_panel)
 	panels.register("visit", visit_panel)
 
+	# Touch under chrome so top chips / catalog / visit never spawn the stick.
 	_build_touch(root)
+	root.move_child(touch_layer, 0)
+	if _top_actions:
+		root.move_child(_top_actions, -1)
+	root.move_child(catalog_panel, -1)
+	root.move_child(visit_panel, -1)
 
 
 func _build_touch(root: Control) -> void:
@@ -264,6 +275,7 @@ func _build_touch(root: Control) -> void:
 
 	joystick = VirtualJoystick.new()
 	joystick.name = "Joystick"
+	joystick.floating_mode = floating_joystick
 	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	joystick.move_changed.connect(_on_move_changed)
 	touch_layer.add_child(joystick)
@@ -313,25 +325,44 @@ func _layout_touch() -> void:
 		return
 	var vp := get_viewport().get_visible_rect().size
 	var short_side := minf(vp.x, vp.y)
+	var phone_like := short_side < 900.0 or (vp.x / maxf(vp.y, 1.0) > 1.8)
 	var scale := clampf(short_side / 828.0, 0.85, 1.45)
 	var joy_d := 132.0 * scale
 	var joy_pad := 28.0 * scale
-	var joy_size := Vector2(joy_d + joy_pad * 2.0, joy_d + joy_pad * 2.0 + 22.0 * scale)
+	joystick.floating_mode = floating_joystick
 	joystick.base_diameter = joy_d
 	joystick.knob_diameter = 56.0 * scale
 	joystick.activation_padding = joy_pad
-	joystick.custom_minimum_size = joy_size
-	joystick.anchor_left = 0.0
-	joystick.anchor_top = 1.0
-	joystick.anchor_right = 0.0
-	joystick.anchor_bottom = 1.0
-	joystick.offset_left = 4.0
-	joystick.offset_top = -joy_size.y - 8.0
-	joystick.offset_right = 4.0 + joy_size.x
-	joystick.offset_bottom = -8.0
+	var top_clear := (80.0 if phone_like else 96.0) * scale
+	var bottom_clear := (24.0 if phone_like else 28.0) * scale
+	if floating_joystick:
+		var frac := clampf(move_zone_width_fraction, 0.35, 0.48)
+		joystick.custom_minimum_size = Vector2.ZERO
+		joystick.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+		joystick.anchor_left = 0.0
+		joystick.anchor_top = 0.0
+		joystick.anchor_right = frac
+		joystick.anchor_bottom = 1.0
+		joystick.offset_left = 8.0
+		joystick.offset_top = top_clear
+		joystick.offset_right = 0.0
+		joystick.offset_bottom = -bottom_clear
+	else:
+		var joy_size := Vector2(joy_d + joy_pad * 2.0, joy_d + joy_pad * 2.0 + 22.0 * scale)
+		joystick.custom_minimum_size = joy_size
+		joystick.anchor_left = 0.0
+		joystick.anchor_top = 1.0
+		joystick.anchor_right = 0.0
+		joystick.anchor_bottom = 1.0
+		joystick.offset_left = 4.0
+		joystick.offset_top = -joy_size.y - 8.0
+		joystick.offset_right = 4.0 + joy_size.x
+		joystick.offset_bottom = -8.0
 	if joystick.has_method("_layout"):
 		joystick._layout()
 
+	look_area.anchor_left = 0.55
+	look_area.offset_top = top_clear
 	look_area.offset_bottom = -110.0 * scale
 
 	var cluster: Control = touch_layer.get_node_or_null("HouseActions")

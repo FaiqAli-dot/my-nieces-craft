@@ -199,13 +199,15 @@ func _build_ui() -> void:
 	toast_label.add_theme_color_override("font_color", COL_INK)
 	_root.add_child(toast_label)
 
-	# Touch controls under hotbar so hotbar taps always win.
+	# Touch under top-bar chips + hotbar so those taps never spawn the stick.
 	touch_controls = TouchControls.new()
 	touch_controls.name = "TouchControls"
 	touch_layer = touch_controls
 	_root.add_child(touch_controls)
 	move_stick = touch_controls.joystick
 	look_pad = touch_controls.look_area
+	# Raise top bar above the left movement zone (zone excludes it too).
+	_root.move_child(top_bar, touch_controls.get_index() + 1)
 
 	hotbar_tray = TouchHotbar.new()
 	hotbar_tray.name = "HotbarTray"

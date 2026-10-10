@@ -147,17 +147,52 @@ func _test_crosshair_does_not_block_clicks() -> void:
 
 func _test_virtual_joystick_and_look() -> void:
 	var joy := VirtualJoystick.new()
-	joy.size = Vector2(200, 200)
+	joy.floating_mode = true
+	joy.size = Vector2(400, 500)
 	add_child(joy)
 	await get_tree().process_frame
-	var center := joy.size * 0.5
-	joy.simulate_touch(0, center, true)
-	joy.simulate_drag(0, center + Vector2(60, 0))
-	_assert(joy.get_vector().x > 0.4, "joystick vector +x")
-	joy.simulate_drag(0, center + Vector2(0, -60))
-	_assert(joy.get_vector().y < -0.4, "joystick vector -y")
-	joy.simulate_touch(0, center, false)
-	_assert(joy.get_vector() == Vector2.ZERO, "joystick release zeros vector")
+	_assert(joy.floating_mode, "VirtualJoystick defaults to floating_mode")
+	# Spawn at several non-rest points inside the zone.
+	var spawn_points: Array[Vector2] = [
+		Vector2(120, 140),
+		Vector2(280, 200),
+		Vector2(90, 360),
+		Vector2(220, 300),
+	]
+	for p in spawn_points:
+		joy.simulate_touch(0, p, true)
+		_assert(joy.is_active(), "floating spawn active at %s" % p)
+		_assert(joy.visual_center().distance_to(p) < joy.base_diameter * 0.55, "base spawns near touch %s" % p)
+		joy.simulate_drag(0, p + Vector2(50, 0))
+		_assert(joy.get_vector().x > 0.3, "floating drag +x from %s" % p)
+		joy.simulate_touch(0, p, false)
+		_assert(joy.get_vector() == Vector2.ZERO, "release stops movement at %s" % p)
+		_assert(not joy.is_active(), "inactive after release at %s" % p)
+		_assert(joy.visual_center().distance_to(joy.rest_center()) < 2.0, "returns to rest hint after %s" % p)
+
+	# Kid-friendly clamp: base stays put when finger exceeds radius.
+	var spawn := Vector2(200, 250)
+	joy.follow_base_beyond_radius = false
+	joy.simulate_touch(0, spawn, true)
+	var base0 := joy.visual_center()
+	joy.simulate_drag(0, spawn + Vector2(400, 0))
+	_assert(joy.visual_center().distance_to(base0) < 1.0, "clamp keeps base fixed beyond radius")
+	_assert(joy.get_vector().x > 0.8, "clamp still reports full +x")
+	joy.simulate_touch(0, spawn, false)
+
+	# Fixed mode: only activates near the centered stick.
+	var fixed := VirtualJoystick.new()
+	fixed.floating_mode = false
+	fixed.size = Vector2(200, 200)
+	add_child(fixed)
+	await get_tree().process_frame
+	fixed.simulate_touch(0, Vector2(10, 10), true)
+	_assert(not fixed.is_active(), "fixed mode ignores far corner")
+	fixed.simulate_touch(0, fixed.size * 0.5, true)
+	fixed.simulate_drag(0, fixed.size * 0.5 + Vector2(60, 0))
+	_assert(fixed.get_vector().x > 0.4, "fixed mode vector +x")
+	fixed.simulate_touch(0, fixed.size * 0.5, false)
+	_assert(fixed.get_vector() == Vector2.ZERO, "fixed mode release zeros vector")
 
 	var look := LookArea.new()
 	look.size = Vector2(300, 400)
@@ -175,15 +210,18 @@ func _test_virtual_joystick_and_look() -> void:
 	_assert(got[0] == Vector2.ZERO, "look ignores drag after release")
 
 	# Distinct indices: joystick 0 + look 1 simultaneously.
-	joy.simulate_touch(0, center + Vector2(40, 0), true)
-	joy.simulate_drag(0, center + Vector2(50, 0))
+	var mt := Vector2(160, 180)
+	joy.simulate_touch(0, mt, true)
+	joy.simulate_drag(0, mt + Vector2(50, 0))
 	look.simulate_touch(1, look.size * 0.5, true)
 	look.simulate_drag(1, Vector2(5, 5))
 	_assert(joy.get_vector().x > 0.2, "multitouch joystick still active")
 	_assert(look.is_looking(), "multitouch look still active")
-	joy.simulate_touch(0, center, false)
+	joy.simulate_touch(0, mt, false)
 	look.simulate_touch(1, look.size * 0.5, false)
+	_assert(joy.get_vector() == Vector2.ZERO, "multitouch move release clears")
 	joy.queue_free()
+	fixed.queue_free()
 	look.queue_free()
 	await get_tree().process_frame
 
@@ -198,6 +236,14 @@ func _test_touch_hud_mouse_filters() -> void:
 	_assert(ui.touch_controls.visible, "forced touch shows controls")
 	_assert(ui.touch_controls.mouse_filter == Control.MOUSE_FILTER_IGNORE, "TouchControls root ignores mouse")
 	_assert(ui.touch_controls.look_area.anchor_left >= 0.54, "look area starts right of center")
+	_assert(ui.touch_controls.floating_joystick, "TouchControls uses floating joystick")
+	_assert(ui.touch_controls.joystick.floating_mode, "meadow joystick floating_mode on")
+	ui.touch_controls._on_viewport_resized()
+	await get_tree().process_frame
+	var joy_r: Rect2 = ui.touch_controls.joystick.get_global_rect()
+	var vp_r := get_viewport().get_visible_rect()
+	_assert(joy_r.size.x >= vp_r.size.x * 0.30, "move zone is a wide left band")
+	_assert(joy_r.end.x <= vp_r.size.x * 0.50, "move zone stays on left half")
 	var place_btn := ui.touch_controls.get_action_button("place")
 	_assert(place_btn != null, "place action button present")
 	_assert(place_btn.mouse_filter == Control.MOUSE_FILTER_STOP, "place button is interactive")
