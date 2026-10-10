@@ -18,7 +18,9 @@ func _ready() -> void:
 	ui._detect_touch()
 	_assert(ui.touch_layer.visible, "touch layer visible")
 	_assert(ui.place_btn != null and ui.rotate_btn != null and ui.cancel_btn != null, "touch place/rotate/cancel exist")
+	_assert(ui.joystick != null and ui.look_area != null, "shared VirtualJoystick + LookArea present")
 	_assert(ui.move_stick != null and ui.look_pad != null, "move/look pads exist")
+	_assert(ui.place_btn is ActionButton, "place uses ActionButton from #7")
 
 	# Offline decorate path if no server
 	_world.placement.can_decorate = true

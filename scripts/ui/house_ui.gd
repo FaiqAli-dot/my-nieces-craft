@@ -1,14 +1,14 @@
 extends CanvasLayer
 class_name HouseUi
-## Phase 2 house HUD — Sunny Toy Meadow status card, roster, catalog, touch.
+## Phase 2 house HUD — CozyTouchTheme status card + #7 touch primitives.
 
-const COL_PANEL := Color("FFF6E8")
-const COL_INK := Color("3E4A3C")
-const COL_ACCENT := Color("FFD54F")
-const COL_PINK := Color("F48FB1")
-const COL_GREEN := Color("7BC96F")
-const COL_SKY := Color("6EB6F0")
-const COL_CORAL := Color("E57373")
+const COL_PANEL := CozyTouchTheme.COL_PANEL
+const COL_INK := CozyTouchTheme.COL_INK
+const COL_ACCENT := CozyTouchTheme.COL_ACCENT
+const COL_PINK := CozyTouchTheme.COL_PINK
+const COL_GREEN := CozyTouchTheme.COL_GREEN
+const COL_SKY := CozyTouchTheme.COL_SKY
+const COL_CORAL := CozyTouchTheme.COL_BREAK
 
 var world: Node
 var _font: Font
@@ -28,13 +28,15 @@ var catalog_panel: PanelContainer
 var visit_panel: PanelContainer
 var invite_input: LineEdit
 var touch_layer: Control
-var move_stick: Panel
-var look_pad: Panel
-var place_btn: Button
-var rotate_btn: Button
-var cancel_btn: Button
-var _move_dragging := false
-var _look_dragging := false
+var joystick: VirtualJoystick
+var look_area: LookArea
+## Legacy aliases for touch regression / harnesses.
+var move_stick: Control
+var look_pad: Control
+var place_btn: ActionButton
+var rotate_btn: ActionButton
+var cancel_btn: ActionButton
+var jump_btn: ActionButton
 var _toast_timer := 0.0
 var toast_label: Label
 var _catalog_open := false
@@ -45,34 +47,21 @@ var _players_cache: Array = []
 
 func _ready() -> void:
 	layer = 10
-	_font = load("res://assets/fonts/Nunito-Bold.ttf")
+	_font = CozyTouchTheme.font()
 	_debug_hud = OS.get_environment("COZY_DEBUG_HUD") == "1"
 	_build()
 	GameState.message.connect(show_toast)
 	_detect_touch()
+	get_viewport().size_changed.connect(_layout_touch)
+	call_deferred("_layout_touch")
 
 
 func bind(w: Node) -> void:
 	world = w
 
 
-func _sb(bg: Color, radius := 16, border := Color(0,0,0,0), border_w := 0) -> StyleBoxFlat:
-	var s := StyleBoxFlat.new()
-	s.bg_color = bg
-	s.corner_radius_top_left = radius
-	s.corner_radius_top_right = radius
-	s.corner_radius_bottom_left = radius
-	s.corner_radius_bottom_right = radius
-	s.border_color = border
-	s.border_width_left = border_w
-	s.border_width_top = border_w
-	s.border_width_right = border_w
-	s.border_width_bottom = border_w
-	s.content_margin_left = 12
-	s.content_margin_right = 12
-	s.content_margin_top = 10
-	s.content_margin_bottom = 10
-	return s
+func _sb(bg: Color, radius := 16, border := Color(0, 0, 0, 0), border_w := 0) -> StyleBoxFlat:
+	return CozyTouchTheme.style_box(bg, radius, border, border_w, true)
 
 
 func _theme_button(b: Button, min_size := Vector2(96, 52), bg := COL_ACCENT) -> void:
@@ -109,7 +98,6 @@ func _chip(text: String, bg: Color) -> Label:
 	wrap.add_theme_stylebox_override("panel", chip_sb)
 	var l := _lab(text, 16)
 	wrap.add_child(l)
-	# Store label on meta so callers can update text via the returned Label.
 	l.set_meta("_chip_wrap", wrap)
 	return l
 
@@ -121,7 +109,6 @@ func _build() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	# Styled status card (kid-friendly, Phase 1.5 language)
 	var card := PanelContainer.new()
 	card.name = "StatusCard"
 	card.position = Vector2(16, 12)
@@ -148,8 +135,7 @@ func _build() -> void:
 	chips.add_child(collab_chip.get_meta("_chip_wrap"))
 	invite_chip = _chip("Invite —", COL_PINK.lightened(0.25))
 	cv.add_child(invite_chip.get_meta("_chip_wrap"))
-	var roster_title := _lab("Friends here", 18)
-	cv.add_child(roster_title)
+	cv.add_child(_lab("Friends here", 18))
 	roster_box = VBoxContainer.new()
 	roster_box.name = "Roster"
 	roster_box.add_theme_constant_override("separation", 2)
@@ -157,7 +143,6 @@ func _build() -> void:
 	cv.add_child(roster_box)
 	roster_box.add_child(_lab("Just you for now", 16))
 
-	# Raw debug lines (hidden unless COZY_DEBUG_HUD=1)
 	debug_box = VBoxContainer.new()
 	debug_box.name = "DebugHud"
 	debug_box.position = Vector2(16, 220)
@@ -200,7 +185,6 @@ func _build() -> void:
 	toast_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(toast_label)
 
-	# Hint only in debug mode — not a permanent engineering chrome line
 	var hint := _lab("WASD · mouse look · E move · R rotate · click place · Esc cancel", 16)
 	hint.name = "Hint"
 	hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -224,7 +208,12 @@ func _build() -> void:
 	var close_c := Button.new()
 	close_c.text = "Close"
 	_theme_button(close_c, Vector2(160, 48), COL_CORAL)
-	close_c.pressed.connect(func(): catalog_panel.visible = false; _catalog_open = false; if world: world.player.capture_mouse())
+	close_c.pressed.connect(func():
+		catalog_panel.visible = false
+		_catalog_open = false
+		if world:
+			world.player.capture_mouse()
+	)
 	catalog_panel.get_node("Margin/VBox").add_child(close_c)
 
 	visit_panel = _panel(root, "Visit a friend", Vector2(420, 260))
@@ -241,7 +230,8 @@ func _build() -> void:
 		NetClient.join_invite(invite_input.text)
 		visit_panel.visible = false
 		_visit_open = false
-		if world: world.player.capture_mouse()
+		if world:
+			world.player.capture_mouse()
 	)
 	vv.add_child(join_btn)
 	var own_btn := Button.new()
@@ -251,49 +241,143 @@ func _build() -> void:
 		NetClient.enter_own_house()
 		visit_panel.visible = false
 		_visit_open = false
-		if world: world.player.capture_mouse()
+		if world:
+			world.player.capture_mouse()
 	)
 	vv.add_child(own_btn)
 
+	_build_touch(root)
+
+
+func _build_touch(root: Control) -> void:
 	touch_layer = Control.new()
 	touch_layer.name = "TouchControls"
 	touch_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
 	touch_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(touch_layer)
-	move_stick = _touch_pad(Control.PRESET_BOTTOM_LEFT, Vector2(24, -200), Vector2(168, -40), "MOVE", COL_SKY)
-	look_pad = _touch_pad(Control.PRESET_BOTTOM_RIGHT, Vector2(-168, -360), Vector2(-24, -230), "LOOK", COL_PINK)
-	move_stick.gui_input.connect(func(e): _handle_stick(e, true))
-	look_pad.gui_input.connect(func(e): _handle_stick(e, false))
-	touch_layer.add_child(move_stick)
-	touch_layer.add_child(look_pad)
-	var buttons := VBoxContainer.new()
-	buttons.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	buttons.offset_left = -168
-	buttons.offset_top = -220
-	buttons.offset_right = -20
-	buttons.offset_bottom = -40
-	buttons.add_theme_constant_override("separation", 8)
-	touch_layer.add_child(buttons)
-	place_btn = Button.new()
-	place_btn.text = "Place"
-	_theme_button(place_btn, Vector2(140, 48), COL_SKY)
-	place_btn.pressed.connect(func(): if world and world.placement.mode != PlacementController.Mode.IDLE: world.placement.confirm())
-	buttons.add_child(place_btn)
-	rotate_btn = Button.new()
-	rotate_btn.text = "Rotate"
-	_theme_button(rotate_btn, Vector2(140, 48), COL_PINK)
-	rotate_btn.pressed.connect(func(): if world: world.placement.rotate_preview(1))
-	buttons.add_child(rotate_btn)
-	cancel_btn = Button.new()
-	cancel_btn.text = "Cancel"
-	_theme_button(cancel_btn, Vector2(140, 48), COL_CORAL)
-	cancel_btn.pressed.connect(func(): if world: world.cancel_placement())
-	buttons.add_child(cancel_btn)
-	var jump_btn := Button.new()
-	jump_btn.text = "Jump"
-	_theme_button(jump_btn, Vector2(140, 48), COL_GREEN)
-	jump_btn.pressed.connect(func(): if world: world.player.touch_jump())
-	buttons.add_child(jump_btn)
+
+	look_area = LookArea.new()
+	look_area.name = "LookArea"
+	look_area.show_hint = false
+	look_area.set_anchors_preset(Control.PRESET_FULL_RECT)
+	look_area.anchor_left = 0.55
+	look_area.offset_left = 0
+	look_area.offset_top = 0
+	look_area.offset_right = 0
+	look_area.offset_bottom = -110
+	look_area.look_delta.connect(_on_look_delta)
+	touch_layer.add_child(look_area)
+	look_pad = look_area
+
+	joystick = VirtualJoystick.new()
+	joystick.name = "Joystick"
+	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	joystick.move_changed.connect(_on_move_changed)
+	touch_layer.add_child(joystick)
+	move_stick = joystick
+
+	var cluster := Control.new()
+	cluster.name = "HouseActions"
+	cluster.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	cluster.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	touch_layer.add_child(cluster)
+
+	place_btn = _action_btn("Place", COL_SKY, "res://assets/ui/icons/icon_place.png")
+	rotate_btn = _action_btn("Rotate", COL_PINK, "")
+	cancel_btn = _action_btn("Cancel", COL_CORAL, "res://assets/ui/icons/icon_break.png")
+	jump_btn = _action_btn("Jump", COL_GREEN, "res://assets/ui/icons/icon_jump.png")
+	place_btn.pressed.connect(func():
+		if world and world.placement.mode != PlacementController.Mode.IDLE:
+			world.placement.confirm()
+	)
+	rotate_btn.pressed.connect(func():
+		if world:
+			world.placement.rotate_preview(1)
+	)
+	cancel_btn.pressed.connect(func():
+		if world:
+			world.cancel_placement()
+	)
+	jump_btn.pressed.connect(func():
+		if world:
+			world.player.touch_jump()
+	)
+	for btn in [place_btn, rotate_btn, cancel_btn, jump_btn]:
+		cluster.add_child(btn)
+	cluster.set_meta("buttons", [place_btn, rotate_btn, cancel_btn, jump_btn])
+
+
+func _action_btn(label: String, color: Color, icon: String) -> ActionButton:
+	var b := ActionButton.new()
+	b.button_size = 78.0
+	b.show_label = true
+	b.configure(label + "Button", color, icon, label, 0.0)
+	return b
+
+
+func _layout_touch() -> void:
+	if touch_layer == null or joystick == null:
+		return
+	var vp := get_viewport().get_visible_rect().size
+	var short_side := minf(vp.x, vp.y)
+	var scale := clampf(short_side / 828.0, 0.85, 1.45)
+	var joy_d := 132.0 * scale
+	var joy_pad := 28.0 * scale
+	var joy_size := Vector2(joy_d + joy_pad * 2.0, joy_d + joy_pad * 2.0 + 22.0 * scale)
+	joystick.base_diameter = joy_d
+	joystick.knob_diameter = 56.0 * scale
+	joystick.activation_padding = joy_pad
+	joystick.custom_minimum_size = joy_size
+	joystick.anchor_left = 0.0
+	joystick.anchor_top = 1.0
+	joystick.anchor_right = 0.0
+	joystick.anchor_bottom = 1.0
+	joystick.offset_left = 4.0
+	joystick.offset_top = -joy_size.y - 8.0
+	joystick.offset_right = 4.0 + joy_size.x
+	joystick.offset_bottom = -8.0
+	if joystick.has_method("_layout"):
+		joystick._layout()
+
+	look_area.offset_bottom = -110.0 * scale
+
+	var cluster: Control = touch_layer.get_node_or_null("HouseActions")
+	if cluster == null:
+		return
+	var btn_sz := 78.0 * scale
+	var gap := 10.0 * scale
+	var stack_h := btn_sz * 4.0 + gap * 3.0
+	cluster.anchor_left = 1.0
+	cluster.anchor_top = 1.0
+	cluster.anchor_right = 1.0
+	cluster.anchor_bottom = 1.0
+	cluster.offset_left = -btn_sz - 16.0
+	cluster.offset_top = -stack_h - 16.0
+	cluster.offset_right = -12.0
+	cluster.offset_bottom = -12.0
+	var y := 0.0
+	for btn in [place_btn, rotate_btn, cancel_btn, jump_btn]:
+		if btn == null:
+			continue
+		btn.button_size = btn_sz
+		btn.custom_minimum_size = Vector2(btn_sz, btn_sz)
+		btn.size = Vector2(btn_sz, btn_sz)
+		btn.position = Vector2(0, y)
+		if btn.has_method("_layout_children"):
+			btn._layout_children()
+		if btn.has_method("_apply_style"):
+			btn._apply_style(false)
+		y += btn_sz + gap
+
+
+func _on_move_changed(v: Vector2) -> void:
+	if world:
+		world.player.set_touch_move(v)
+
+
+func _on_look_delta(v: Vector2) -> void:
+	if world:
+		world.player.add_touch_look(v)
 
 
 func _panel(parent: Control, title: String, size: Vector2) -> PanelContainer:
@@ -317,27 +401,6 @@ func _panel(parent: Control, title: String, size: Vector2) -> PanelContainer:
 	margin.add_child(vbox)
 	vbox.add_child(_lab(title, 28))
 	return panel
-
-
-func _touch_pad(preset: int, off_lt: Vector2, off_rb: Vector2, caption: String, color: Color) -> Panel:
-	var p := Panel.new()
-	p.set_anchors_preset(preset)
-	p.offset_left = off_lt.x
-	p.offset_top = off_lt.y
-	p.offset_right = off_rb.x
-	p.offset_bottom = off_rb.y
-	p.add_theme_stylebox_override("panel", _sb(Color(color.r, color.g, color.b, 0.55), 28, color.darkened(0.2), 3))
-	var lab := Label.new()
-	lab.text = caption
-	lab.set_anchors_preset(Control.PRESET_CENTER)
-	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	lab.add_theme_color_override("font_color", COL_INK)
-	if _font:
-		lab.add_theme_font_override("font", _font)
-		lab.add_theme_font_size_override("font_size", 22)
-	p.add_child(lab)
-	return p
 
 
 func _detect_touch() -> void:
@@ -455,46 +518,3 @@ func open_visit_panel() -> void:
 func _toggle_collab() -> void:
 	var on := not bool(NetClient.current_house.get("collaboration_enabled", false))
 	NetClient.set_collab(on)
-
-
-func _handle_stick(event: InputEvent, is_move: bool) -> void:
-	if world == null:
-		return
-	var player: ThirdPersonController = world.player
-	if event is InputEventScreenTouch:
-		if event.pressed:
-			if is_move: _move_dragging = true
-			else: _look_dragging = true
-		else:
-			if is_move:
-				_move_dragging = false
-				player.set_touch_move(Vector2.ZERO)
-			else:
-				_look_dragging = false
-	elif event is InputEventScreenDrag:
-		var drag := event as InputEventScreenDrag
-		if is_move and _move_dragging:
-			var center: Vector2 = move_stick.size * 0.5
-			var v: Vector2 = (drag.position - center) / (move_stick.size.x * 0.5)
-			player.set_touch_move(Vector2(v.x, v.y))
-		elif not is_move and _look_dragging:
-			player.add_touch_look(drag.relative)
-	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		if event.pressed:
-			if is_move: _move_dragging = true
-			else: _look_dragging = true
-		else:
-			if is_move:
-				_move_dragging = false
-				player.set_touch_move(Vector2.ZERO)
-			else:
-				_look_dragging = false
-	elif event is InputEventMouseMotion:
-		var motion := event as InputEventMouseMotion
-		if is_move and _move_dragging:
-			var center2: Vector2 = move_stick.size * 0.5
-			var local_pos: Vector2 = move_stick.get_local_mouse_position()
-			var v2: Vector2 = (local_pos - center2) / (move_stick.size.x * 0.5)
-			player.set_touch_move(Vector2(v2.x, v2.y))
-		elif not is_move and _look_dragging:
-			player.add_touch_look(motion.relative)

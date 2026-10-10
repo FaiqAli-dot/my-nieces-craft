@@ -47,6 +47,11 @@ Phase 1 meadow voxel gameplay remains the default main scene (`scenes/world/main
 
 Any non-interactive full-screen or center `Control` (toast, hint, crosshair) **must** use `MOUSE_FILTER_IGNORE`. The Phase 1.5 crosshair bug (`MOUSE_FILTER_STOP` swallowing captured clicks) is covered by unit + `COZY_PLACE_UI_TEST=1`.
 
+## Mobile touch HUD (merged from main / PR #7)
+
+House UI reuses shared primitives under `scripts/ui/touch/` and `scenes/ui/touch/`:
+`VirtualJoystick`, `LookArea`, `ActionButton`, `CozyTouchTheme`. Meadow `GameUi` keeps the full `TouchControls` cluster; the house scene composes joystick + look + Place/Rotate/Cancel/Jump action buttons.
+
 ## Voxel face-culling (merged from PR #6)
 
 Side-face quads in `VoxelChunk` were wound CCW-from-outside while Godot culls with clockwise front faces. Merged `cursor/fix-face-winding-e5ec` (`c79be849`): side triangles flipped via `face_tri_order(flip=true)`, plus winding unit tests and `face_winding_shots.gd`.

@@ -37,10 +37,10 @@ var _instances: Dictionary = {} # id -> FurnitureVisual
 
 
 func _ready() -> void:
-	_ghost_mat_ok = _make_ghost(Color(0.18, 0.95, 0.38, 0.78), Color(0.2, 1.0, 0.35))
-	_ghost_mat_bad = _make_ghost(Color(0.98, 0.18, 0.18, 0.78), Color(1.0, 0.25, 0.2))
-	_fp_mat_ok = _make_ghost(Color(0.15, 0.92, 0.32, 0.55), Color(0.2, 0.95, 0.35))
-	_fp_mat_bad = _make_ghost(Color(0.95, 0.15, 0.15, 0.55), Color(1.0, 0.2, 0.2))
+	_ghost_mat_ok = _make_ghost(Color(0.12, 0.95, 0.32, 0.88), Color(0.15, 1.0, 0.3))
+	_ghost_mat_bad = _make_ghost(Color(0.98, 0.12, 0.12, 0.88), Color(1.0, 0.2, 0.15))
+	_fp_mat_ok = _make_ghost(Color(0.1, 0.95, 0.28, 0.7), Color(0.15, 1.0, 0.3))
+	_fp_mat_bad = _make_ghost(Color(0.98, 0.1, 0.1, 0.7), Color(1.0, 0.15, 0.15))
 
 
 func _make_ghost(col: Color, emission: Color = Color.BLACK) -> StandardMaterial3D:

@@ -138,7 +138,7 @@ func _on_player_joined(info: Dictionary) -> void:
 	if pid == NetClient.player_id:
 		return
 	_ensure_remote(info)
-	ui.refresh_roster()
+	ui.refresh_roster_from(_roster_players())
 
 
 func _on_player_left(info: Dictionary) -> void:
@@ -146,7 +146,18 @@ func _on_player_left(info: Dictionary) -> void:
 	if _remotes.has(pid):
 		_remotes[pid].queue_free()
 		_remotes.erase(pid)
-	ui.refresh_roster()
+	ui.refresh_roster_from(_roster_players())
+
+
+func _roster_players() -> Array:
+	var players: Array = [{
+		"player_id": NetClient.player_id,
+		"display_name": NetClient.display_name,
+	}]
+	for pid in _remotes.keys():
+		var rp: RemotePlayer = _remotes[pid]
+		players.append({"player_id": pid, "display_name": rp.display_name})
+	return players
 
 
 func _on_player_moved(info: Dictionary) -> void:

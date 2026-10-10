@@ -89,9 +89,21 @@ wait "$BOB_PID" || BOB_EC=$?
 wait "$FFMPEG_PID" 2>/dev/null || true
 
 # Side-by-side still from latest dual frames if present
-if [[ -f "$SHOT_DIR/alice_03_synced_chair.png" && -f "$SHOT_DIR/bob_02_placed.png" ]]; then
-  convert "$SHOT_DIR/alice_03_synced_chair.png" "$SHOT_DIR/bob_02_placed.png" +append \
-    "$SHOT_DIR/08_dual_client_side_by_side.png" 2>/dev/null || true
+LEFT="$SHOT_DIR/alice_02_both_visible.png"
+RIGHT="$SHOT_DIR/bob_02_placed.png"
+if [[ ! -f "$LEFT" ]]; then LEFT="$SHOT_DIR/alice_03_synced_chair.png"; fi
+if [[ -f "$LEFT" && -f "$RIGHT" ]]; then
+  python3 - <<PY
+from PIL import Image
+left = Image.open("$LEFT")
+right = Image.open("$RIGHT")
+h = max(left.height, right.height)
+canvas = Image.new("RGB", (left.width + right.width, h), (40, 44, 48))
+canvas.paste(left, (0, 0))
+canvas.paste(right, (left.width, 0))
+canvas.save("$SHOT_DIR/08_dual_client_side_by_side.png")
+print("wrote side-by-side", "$SHOT_DIR/08_dual_client_side_by_side.png")
+PY
 fi
 
 kill "$SERVER_PID" 2>/dev/null || true
