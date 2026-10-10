@@ -20,6 +20,13 @@ func _ready() -> void:
 	await _test_house_persistence()
 	_test_duplicate_and_isolation()
 	await _test_house_ui_mouse_filters()
+	_test_exclusive_panels()
+	await _test_meadow_house_exclusive_menus()
+	_test_furniture_collision_flags()
+	_test_creative_flight_gates()
+	await _test_house_floor_collision()
+	_test_player_proportions()
+	await _test_flight_cluster_inset_api()
 	await _test_world_serialize()
 	await _test_chunk_mesh_update()
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
@@ -140,17 +147,52 @@ func _test_crosshair_does_not_block_clicks() -> void:
 
 func _test_virtual_joystick_and_look() -> void:
 	var joy := TouchJoystick.new()
-	joy.size = Vector2(200, 200)
+	joy.floating_mode = true
+	joy.size = Vector2(400, 500)
 	add_child(joy)
 	await get_tree().process_frame
-	var center := joy.size * 0.5
-	joy.simulate_touch(0, center, true)
-	joy.simulate_drag(0, center + Vector2(60, 0))
-	_assert(joy.get_vector().x > 0.4, "joystick vector +x")
-	joy.simulate_drag(0, center + Vector2(0, -60))
-	_assert(joy.get_vector().y < -0.4, "joystick vector -y")
-	joy.simulate_touch(0, center, false)
-	_assert(joy.get_vector() == Vector2.ZERO, "joystick release zeros vector")
+	_assert(joy.floating_mode, "TouchJoystick defaults to floating_mode")
+	# Spawn at several non-rest points inside the zone.
+	var spawn_points: Array[Vector2] = [
+		Vector2(120, 140),
+		Vector2(280, 200),
+		Vector2(90, 360),
+		Vector2(220, 300),
+	]
+	for p in spawn_points:
+		joy.simulate_touch(0, p, true)
+		_assert(joy.is_active(), "floating spawn active at %s" % p)
+		_assert(joy.visual_center().distance_to(p) < joy.base_diameter * 0.55, "base spawns near touch %s" % p)
+		joy.simulate_drag(0, p + Vector2(50, 0))
+		_assert(joy.get_vector().x > 0.3, "floating drag +x from %s" % p)
+		joy.simulate_touch(0, p, false)
+		_assert(joy.get_vector() == Vector2.ZERO, "release stops movement at %s" % p)
+		_assert(not joy.is_active(), "inactive after release at %s" % p)
+		_assert(joy.visual_center().distance_to(joy.rest_center()) < 2.0, "returns to rest hint after %s" % p)
+
+	# Kid-friendly clamp: base stays put when finger exceeds radius.
+	var spawn := Vector2(200, 250)
+	joy.follow_base_beyond_radius = false
+	joy.simulate_touch(0, spawn, true)
+	var base0 := joy.visual_center()
+	joy.simulate_drag(0, spawn + Vector2(400, 0))
+	_assert(joy.visual_center().distance_to(base0) < 1.0, "clamp keeps base fixed beyond radius")
+	_assert(joy.get_vector().x > 0.8, "clamp still reports full +x")
+	joy.simulate_touch(0, spawn, false)
+
+	# Fixed mode: only activates near the centered stick.
+	var fixed := TouchJoystick.new()
+	fixed.floating_mode = false
+	fixed.size = Vector2(200, 200)
+	add_child(fixed)
+	await get_tree().process_frame
+	fixed.simulate_touch(0, Vector2(10, 10), true)
+	_assert(not fixed.is_active(), "fixed mode ignores far corner")
+	fixed.simulate_touch(0, fixed.size * 0.5, true)
+	fixed.simulate_drag(0, fixed.size * 0.5 + Vector2(60, 0))
+	_assert(fixed.get_vector().x > 0.4, "fixed mode vector +x")
+	fixed.simulate_touch(0, fixed.size * 0.5, false)
+	_assert(fixed.get_vector() == Vector2.ZERO, "fixed mode release zeros vector")
 
 	var look := LookArea.new()
 	look.size = Vector2(300, 400)
@@ -168,15 +210,18 @@ func _test_virtual_joystick_and_look() -> void:
 	_assert(got[0] == Vector2.ZERO, "look ignores drag after release")
 
 	# Distinct indices: joystick 0 + look 1 simultaneously.
-	joy.simulate_touch(0, center + Vector2(40, 0), true)
-	joy.simulate_drag(0, center + Vector2(50, 0))
+	var mt := Vector2(160, 180)
+	joy.simulate_touch(0, mt, true)
+	joy.simulate_drag(0, mt + Vector2(50, 0))
 	look.simulate_touch(1, look.size * 0.5, true)
 	look.simulate_drag(1, Vector2(5, 5))
 	_assert(joy.get_vector().x > 0.2, "multitouch joystick still active")
 	_assert(look.is_looking(), "multitouch look still active")
-	joy.simulate_touch(0, center, false)
+	joy.simulate_touch(0, mt, false)
 	look.simulate_touch(1, look.size * 0.5, false)
+	_assert(joy.get_vector() == Vector2.ZERO, "multitouch move release clears")
 	joy.queue_free()
+	fixed.queue_free()
 	look.queue_free()
 	await get_tree().process_frame
 
@@ -191,6 +236,14 @@ func _test_touch_hud_mouse_filters() -> void:
 	_assert(ui.touch_controls.visible, "forced touch shows controls")
 	_assert(ui.touch_controls.mouse_filter == Control.MOUSE_FILTER_IGNORE, "TouchControls root ignores mouse")
 	_assert(ui.touch_controls.look_area.anchor_left >= 0.54, "look area starts right of center")
+	_assert(ui.touch_controls.floating_joystick, "TouchControls uses floating joystick")
+	_assert(ui.touch_controls.joystick.floating_mode, "meadow joystick floating_mode on")
+	ui.touch_controls._on_viewport_resized()
+	await get_tree().process_frame
+	var joy_r: Rect2 = ui.touch_controls.joystick.get_global_rect()
+	var vp_r := get_viewport().get_visible_rect()
+	_assert(joy_r.size.x >= vp_r.size.x * 0.30, "move zone is a wide left band")
+	_assert(joy_r.end.x <= vp_r.size.x * 0.50, "move zone stays on left half")
 	var place_btn := ui.touch_controls.get_action_button("place")
 	_assert(place_btn != null, "place action button present")
 	_assert(place_btn.mouse_filter == Control.MOUSE_FILTER_STOP, "place button is interactive")
@@ -343,7 +396,158 @@ func _test_house_ui_mouse_filters() -> void:
 	_assert(hint != null and hint.mouse_filter == Control.MOUSE_FILTER_IGNORE, "HouseUI hint ignores mouse")
 	_assert(card != null and card.mouse_filter == Control.MOUSE_FILTER_IGNORE, "StatusCard ignores mouse")
 	_assert(ui.debug_box != null and ui.debug_box.visible == false, "debug HUD hidden by default")
+	_assert(ui.rotate_btn != null, "rotate button exists")
+	_assert(ui.rotate_btn.icon_path.find("icon_rotate") >= 0, "rotate button has rotate icon")
 	ui.queue_free()
+	await get_tree().process_frame
+
+
+func _test_exclusive_panels() -> void:
+	var host := ExclusivePanels.new()
+	var a := PanelContainer.new()
+	var b := PanelContainer.new()
+	var c := PanelContainer.new()
+	add_child(a)
+	add_child(b)
+	add_child(c)
+	host.register("a", a)
+	host.register("b", b)
+	host.register("c", c)
+	_assert(not host.is_open(), "exclusive starts closed")
+	host.open("a")
+	_assert(a.visible and not b.visible and not c.visible, "open a only")
+	host.open("b")
+	_assert(not a.visible and b.visible and not c.visible, "open b closes a")
+	_assert(host.toggle("b") == false, "toggle active closes")
+	_assert(not host.is_open() and not b.visible, "all closed after toggle")
+	host.toggle("c")
+	_assert(host.active_id() == "c" and c.visible, "toggle opens c")
+	host.open("a")
+	_assert(a.visible and not c.visible, "open a closes c")
+	host.close_all()
+	_assert(not a.visible and not b.visible and not c.visible, "close_all hides all")
+	a.queue_free()
+	b.queue_free()
+	c.queue_free()
+
+
+func _test_meadow_house_exclusive_menus() -> void:
+	var meadow := GameUi.new()
+	add_child(meadow)
+	await get_tree().process_frame
+	meadow.toggle_inventory()
+	_assert(meadow.inventory_panel.visible and not meadow.craft_panel.visible, "bag open alone")
+	meadow.toggle_craft()
+	_assert(meadow.craft_panel.visible and not meadow.inventory_panel.visible, "craft closes bag")
+	meadow.toggle_menu()
+	_assert(meadow.menu_panel.visible and not meadow.craft_panel.visible, "menu closes craft")
+	meadow.request_reset()
+	_assert(meadow.confirm_panel.visible and not meadow.menu_panel.visible, "confirm closes menu")
+	meadow.confirm_reset_no()
+	_assert(not meadow.confirm_panel.visible and not meadow.panels.is_open(), "confirm close clears host")
+	meadow.toggle_inventory()
+	meadow.toggle_inventory()
+	_assert(not meadow.inventory_panel.visible, "bag toggles closed")
+	meadow.queue_free()
+	await get_tree().process_frame
+
+	var house := HouseUi.new()
+	add_child(house)
+	await get_tree().process_frame
+	house.open_catalog()
+	_assert(house.catalog_panel.visible and not house.visit_panel.visible, "catalog open alone")
+	house.open_visit_panel()
+	_assert(house.visit_panel.visible and not house.catalog_panel.visible, "visit closes catalog")
+	house.open_visit_panel()
+	_assert(not house.visit_panel.visible, "visit toggles closed")
+	house.open_catalog()
+	house.open_catalog()
+	_assert(not house.catalog_panel.visible, "catalog toggles closed")
+	house.queue_free()
+	await get_tree().process_frame
+
+
+func _test_furniture_collision_flags() -> void:
+	_assert(FurnitureDB.is_solid("chair"), "chair solid")
+	_assert(FurnitureDB.is_solid("table"), "table solid")
+	_assert(FurnitureDB.is_solid("bookshelf"), "bookshelf solid")
+	_assert(not FurnitureDB.is_solid("rug"), "rug not solid")
+	_assert(not FurnitureDB.is_solid("bear"), "bear not solid")
+	_assert(FurnitureDB.collision_height("wardrobe") >= 1.8, "wardrobe tall collider")
+	var vis := FurnitureVisual.new()
+	add_child(vis)
+	vis.setup({
+		"instance_id": "t_chair",
+		"def_id": "chair",
+		"cell_x": 2,
+		"cell_z": 2,
+		"rotation": 0,
+	}, Vector3.ZERO, 0.0)
+	_assert(vis.has_blocking_collision(), "chair visual has blocking body")
+	var rug := FurnitureVisual.new()
+	add_child(rug)
+	rug.setup({
+		"instance_id": "t_rug",
+		"def_id": "rug",
+		"cell_x": 4,
+		"cell_z": 4,
+		"rotation": 0,
+	}, Vector3.ZERO, 0.0)
+	_assert(not rug.has_blocking_collision(), "rug visual non-blocking")
+	vis.queue_free()
+	rug.queue_free()
+
+
+func _test_creative_flight_gates() -> void:
+	GameState.set_creative(true)
+	GameState.set_flying(true)
+	_assert(GameState.flying, "creative can fly")
+	GameState.set_creative(false)
+	_assert(not GameState.flying, "leaving creative disables flight")
+	GameState.set_flying(true)
+	_assert(not GameState.flying, "limited mode rejects flight")
+	GameState.set_creative(true)
+
+
+func _test_house_floor_collision() -> void:
+	var space := HouseSpace.new()
+	var furn := Node3D.new()
+	furn.name = "FurnitureRoot"
+	space.add_child(furn)
+	var players := Node3D.new()
+	players.name = "PlayersRoot"
+	space.add_child(players)
+	add_child(space)
+	await get_tree().process_frame
+	_assert(space.floor_collision_count() >= 2, "floor + apron static bodies")
+	var spawn := space.spawn_position()
+	_assert(is_equal_approx(spawn.y, HouseSpace.FLOOR_Y), "spawn on floor y")
+	# Ray from above spawn should hit the floor slab.
+	var from := spawn + Vector3(0, 2.0, 0)
+	var to := spawn + Vector3(0, -2.0, 0)
+	var q := PhysicsRayQueryParameters3D.create(from, to)
+	q.collision_mask = 1
+	var hit := space.get_world_3d().direct_space_state.intersect_ray(q)
+	_assert(not hit.is_empty(), "floor ray hits collision")
+	_assert(float(hit.get("position", Vector3.ZERO).y) <= 0.05, "floor hit near y=0")
+	space.queue_free()
+	await get_tree().process_frame
+
+
+func _test_player_proportions() -> void:
+	_assert(is_equal_approx(PlayerController.CAPSULE_HEIGHT, 1.8), "FP capsule height 1.8")
+	_assert(is_equal_approx(ThirdPersonController.CAPSULE_HEIGHT, 1.8), "TP capsule height 1.8")
+	_assert(ThirdPersonController.MODEL_SCALE >= 0.85, "avatar scale raised from 0.62")
+
+
+func _test_flight_cluster_inset_api() -> void:
+	var cluster := TouchActionCluster.new()
+	add_child(cluster)
+	await get_tree().process_frame
+	_assert(cluster.flight_column_inset == 0.0, "flight inset starts 0")
+	cluster.set_flight_column_inset(80.0)
+	_assert(is_equal_approx(cluster.flight_column_inset, 80.0), "flight inset applied")
+	cluster.queue_free()
 	await get_tree().process_frame
 
 

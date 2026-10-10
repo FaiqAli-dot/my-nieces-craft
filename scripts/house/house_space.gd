@@ -6,6 +6,8 @@ const FLOOR_Y := 0.0
 const ROOM_CELLS := 12
 const WALL_H := 3.2
 const WALL_T := 0.28
+## Thick walkable slab so CharacterBody3D never tunnels at spawn / jump landings.
+const FLOOR_THICKNESS := 0.5
 
 var grid_origin: Vector3 = Vector3.ZERO
 var room_min: Vector2i = Vector2i(0, 0)
@@ -22,7 +24,7 @@ func _ready() -> void:
 func _build_room() -> void:
 	var old := get_node_or_null("Generated")
 	if old:
-		old.queue_free()
+		old.free()
 	var gen := Node3D.new()
 	gen.name = "Generated"
 	add_child(gen)
@@ -75,16 +77,30 @@ func _box(parent: Node3D, pos: Vector3, size: Vector3, mat: Material, with_colli
 
 
 func _build_floor(gen: Node3D, size: float) -> void:
-	# Warm plank-like base
-	_box(gen, Vector3(size * 0.5, -0.12, size * 0.5), Vector3(size + 0.4, 0.24, size + 0.4),
-		_mat(Color(0.72, 0.48, 0.30), 0.88))
-	# Soft toy floor boards (checker tint strips)
+	# Structural walkable floor — top surface at FLOOR_Y (0).
+	var floor_center_y := FLOOR_Y - FLOOR_THICKNESS * 0.5
+	_box(
+		gen,
+		Vector3(size * 0.5, floor_center_y, size * 0.5),
+		Vector3(size + 0.8, FLOOR_THICKNESS, size + 0.8),
+		_mat(Color(0.72, 0.48, 0.30), 0.88),
+		true
+	)
+	# Exterior apron so walking through the doorway does not drop into the void.
+	_box(
+		gen,
+		Vector3(size + 1.6, floor_center_y, size * 0.5),
+		Vector3(3.2, FLOOR_THICKNESS, 4.0),
+		_mat(Color(0.55, 0.70, 0.40), 0.95),
+		true
+	)
+	# Soft toy floor boards (visual only — collision comes from the slab below)
 	var plank := _mat(Color(0.90, 0.74, 0.52), 0.9)
 	var plank_b := _mat(Color(0.86, 0.68, 0.46), 0.9)
 	for i in ROOM_CELLS:
 		var m := plank if i % 2 == 0 else plank_b
 		_box(gen, Vector3(size * 0.5, 0.01, float(i) + 0.5), Vector3(size - 0.2, 0.04, 0.96), m, false)
-	# Center rug
+	# Center rug (walkable visual only)
 	_box(gen, Vector3(size * 0.5, 0.04, size * 0.5), Vector3(4.8, 0.03, 3.4),
 		_mat(Color(0.95, 0.55, 0.62), 0.95), false)
 	_box(gen, Vector3(size * 0.5, 0.05, size * 0.5), Vector3(3.6, 0.02, 2.2),
@@ -133,33 +149,32 @@ func _build_windows(gen: Node3D, size: float) -> void:
 	for x in [size * 0.32, size * 0.68]:
 		_box(gen, Vector3(x, 1.85, 0.02), Vector3(1.7, 1.35, 0.12), frame, false)
 		_box(gen, Vector3(x, 1.85, 0.08), Vector3(1.35, 1.05, 0.05), glass, false)
-		# Cut visual aperture in north wall by overlaying bright glass (collision kept on full wall)
 
 
 func _build_door(gen: Node3D, size: float) -> void:
 	var wall := _mat(Color(0.98, 0.93, 0.82), 0.96, true)
 	var frame := _mat(Color(0.68, 0.46, 0.28), 0.85)
 	var door := _mat(Color(0.85, 0.55, 0.38), 0.8)
-	# East wall with door gap
+	# East wall with door gap (open doorway — no door-leaf collision)
 	_box(gen, Vector3(size + WALL_T * 0.5, WALL_H * 0.5, size * 0.22), Vector3(WALL_T, WALL_H, size * 0.44), wall)
 	_box(gen, Vector3(size + WALL_T * 0.5, WALL_H * 0.5, size * 0.78), Vector3(WALL_T, WALL_H, size * 0.44), wall)
 	_box(gen, Vector3(size + WALL_T * 0.5, WALL_H * 0.78, size * 0.5), Vector3(WALL_T, WALL_H * 0.44, 2.6), wall)
-	# Door frame + leaf
+	# Door frame + open leaf parked aside (visual only so doorway stays usable)
 	_box(gen, Vector3(size + 0.02, 1.15, size * 0.5), Vector3(0.12, 2.3, 1.55), frame, false)
-	_box(gen, Vector3(size + 0.08, 1.05, size * 0.5 - 0.35), Vector3(0.08, 2.05, 0.72), door, false)
-	_box(gen, Vector3(size + 0.14, 1.1, size * 0.5 - 0.1), Vector3(0.06, 0.12, 0.12),
+	_box(gen, Vector3(size + 0.08, 1.05, size * 0.5 - 0.55), Vector3(0.08, 2.05, 0.72), door, false)
+	_box(gen, Vector3(size + 0.14, 1.1, size * 0.5 - 0.3), Vector3(0.06, 0.12, 0.12),
 		_mat(Color(1.0, 0.85, 0.35), 0.6), false)
 
 
 func _build_decor(gen: Node3D, size: float) -> void:
-	# Window flower shelf
+	# Window flower shelf — light solid so kids bump into it
 	_box(gen, Vector3(size * 0.32, 1.05, 0.35), Vector3(1.2, 0.1, 0.35),
-		_mat(Color(0.75, 0.5, 0.32), 0.88), false)
-	# Soft corner cushion blocks (visual only)
+		_mat(Color(0.75, 0.5, 0.32), 0.88), true)
+	# Soft corner cushion blocks — solid seating props
 	_box(gen, Vector3(1.1, 0.28, 1.1), Vector3(1.2, 0.55, 1.2),
-		_mat(Color(0.55, 0.78, 0.95), 0.95), false)
+		_mat(Color(0.55, 0.78, 0.95), 0.95), true)
 	_box(gen, Vector3(size - 1.2, 0.22, 1.2), Vector3(1.0, 0.42, 1.0),
-		_mat(Color(0.95, 0.72, 0.82), 0.95), false)
+		_mat(Color(0.95, 0.72, 0.82), 0.95), true)
 
 
 func _build_lights(gen: Node3D, size: float) -> void:
@@ -183,7 +198,6 @@ func _build_lights(gen: Node3D, size: float) -> void:
 	lamp.omni_range = 14.0
 	lamp.shadow_enabled = false
 	gen.add_child(lamp)
-	# Window glow
 	for x in [size * 0.32, size * 0.68]:
 		var w := OmniLight3D.new()
 		w.position = Vector3(x, 1.8, 0.6)
@@ -218,4 +232,16 @@ func _build_environment(gen: Node3D) -> void:
 
 
 func spawn_position() -> Vector3:
-	return Vector3(6.0, 0.1, 9.0)
+	## Origin sits on the floor; capsule center is offset in the player scene.
+	return Vector3(6.0, FLOOR_Y, 9.0)
+
+
+func floor_collision_count() -> int:
+	var gen := get_node_or_null("Generated")
+	if gen == null:
+		return 0
+	var n := 0
+	for c in gen.get_children():
+		if c is StaticBody3D:
+			n += 1
+	return n

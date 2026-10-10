@@ -12,6 +12,8 @@ signal craft_pressed
 @export var primary_size: float = 92.0
 @export var secondary_size: float = 76.0
 @export var show_craft: bool = true
+## Extra gap left of Jump so GameUi can park Up/Down without overlapping Break.
+@export var flight_column_inset: float = 0.0
 
 var jump_btn: ActionButton
 var break_btn: ActionButton
@@ -58,6 +60,7 @@ func _make_btn(p_name: String, color: Color, icon: String, label: String, sz: fl
 func _layout() -> void:
 	var w := size.x
 	var h := size.y
+	var flight_gap := maxf(flight_column_inset, 0.0)
 	# Jump — most prominent, bottom-right
 	_place_btn(jump_btn, primary_size, Vector2(w - primary_size - 4.0, h - primary_size - 4.0))
 
@@ -68,17 +71,22 @@ func _layout() -> void:
 		Vector2(w - secondary_size - 8.0, h - primary_size - secondary_size - 18.0)
 	)
 
-	# Break — left of jump
+	# Break — left of jump, shifted further left when a flight column is reserved
 	_place_btn(
 		break_btn,
 		secondary_size,
-		Vector2(w - primary_size - secondary_size - 16.0, h - secondary_size - 28.0)
+		Vector2(w - primary_size - secondary_size - 16.0 - flight_gap, h - secondary_size - 28.0)
 	)
 
 	# Craft — compact secondary, top of cluster
 	if craft_btn and craft_btn.visible:
 		var cs := clampf(secondary_size * 0.85, 56.0, 88.0)
 		_place_btn(craft_btn, cs, Vector2(8.0, 4.0))
+
+
+func set_flight_column_inset(px: float) -> void:
+	flight_column_inset = maxf(px, 0.0)
+	_layout()
 
 
 func _place_btn(btn: ActionButton, sz: float, pos: Vector2) -> void:

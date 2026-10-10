@@ -43,6 +43,11 @@ var _catalog_open := false
 var _visit_open := false
 var _debug_hud := false
 var _players_cache: Array = []
+var panels := ExclusivePanels.new()
+## Match meadow TouchControls: floating left zone vs fixed bottom-left stick.
+var floating_joystick: bool = true
+var move_zone_width_fraction: float = 0.42
+var _top_actions: HBoxContainer
 
 
 func _ready() -> void:
@@ -50,6 +55,9 @@ func _ready() -> void:
 	_font = CozyTouchTheme.font()
 	_debug_hud = OS.get_environment("COZY_DEBUG_HUD") == "1"
 	_build()
+	panels.all_closed.connect(_on_panels_all_closed)
+	panels.opened.connect(_on_panel_opened)
+	panels.closed.connect(_on_panel_closed)
 	GameState.message.connect(show_toast)
 	_detect_touch()
 	get_viewport().size_changed.connect(_layout_touch)
@@ -157,23 +165,24 @@ func _build() -> void:
 	for l in [status_label, role_label, collab_label, invite_label, roster_label]:
 		debug_box.add_child(l)
 
-	var actions := HBoxContainer.new()
-	actions.position = Vector2(350, 16)
-	actions.add_theme_constant_override("separation", 8)
-	root.add_child(actions)
+	_top_actions = HBoxContainer.new()
+	_top_actions.name = "TopActions"
+	_top_actions.position = Vector2(350, 16)
+	_top_actions.add_theme_constant_override("separation", 8)
+	root.add_child(_top_actions)
 	for spec in [
 		["Catalog", COL_SKY, open_catalog],
 		["Invite", COL_PINK, func(): NetClient.request_invite()],
 		["Visit", COL_ACCENT, open_visit_panel],
 		["Collab", COL_GREEN, _toggle_collab],
-		["Leave", COL_CORAL, func(): NetClient.leave_house()],
-		["Meadow", COL_ACCENT, func(): if world: world.go_voxel_world()],
+		["Leave", COL_CORAL, _leave_or_meadow],
+		["Meadow", COL_ACCENT, _return_to_meadow],
 	]:
 		var b := Button.new()
 		b.text = spec[0]
 		_theme_button(b, Vector2(110, 48), spec[1])
 		b.pressed.connect(spec[2])
-		actions.add_child(b)
+		_top_actions.add_child(b)
 
 	toast_label = _lab("", 26)
 	toast_label.name = "Toast"
@@ -198,7 +207,6 @@ func _build() -> void:
 	root.add_child(hint)
 
 	catalog_panel = _panel(root, "Furniture", Vector2(540, 440))
-	catalog_panel.visible = false
 	var grid := GridContainer.new()
 	grid.name = "Grid"
 	grid.columns = 3
@@ -208,16 +216,10 @@ func _build() -> void:
 	var close_c := Button.new()
 	close_c.text = "Close"
 	_theme_button(close_c, Vector2(160, 48), COL_CORAL)
-	close_c.pressed.connect(func():
-		catalog_panel.visible = false
-		_catalog_open = false
-		if world:
-			world.player.capture_mouse()
-	)
+	close_c.pressed.connect(func(): panels.close("catalog"))
 	catalog_panel.get_node("Margin/VBox").add_child(close_c)
 
 	visit_panel = _panel(root, "Visit a friend", Vector2(420, 260))
-	visit_panel.visible = false
 	var vv: VBoxContainer = visit_panel.get_node("Margin/VBox")
 	invite_input = LineEdit.new()
 	invite_input.placeholder_text = "Invite code"
@@ -228,10 +230,7 @@ func _build() -> void:
 	_theme_button(join_btn, Vector2(200, 48), COL_GREEN)
 	join_btn.pressed.connect(func():
 		NetClient.join_invite(invite_input.text)
-		visit_panel.visible = false
-		_visit_open = false
-		if world:
-			world.player.capture_mouse()
+		panels.close("visit")
 	)
 	vv.add_child(join_btn)
 	var own_btn := Button.new()
@@ -239,14 +238,19 @@ func _build() -> void:
 	_theme_button(own_btn, Vector2(200, 48), COL_SKY)
 	own_btn.pressed.connect(func():
 		NetClient.enter_own_house()
-		visit_panel.visible = false
-		_visit_open = false
-		if world:
-			world.player.capture_mouse()
+		panels.close("visit")
 	)
 	vv.add_child(own_btn)
+	panels.register("catalog", catalog_panel)
+	panels.register("visit", visit_panel)
 
+	# Touch under chrome so top chips / catalog / visit never spawn the stick.
 	_build_touch(root)
+	root.move_child(touch_layer, 0)
+	if _top_actions:
+		root.move_child(_top_actions, -1)
+	root.move_child(catalog_panel, -1)
+	root.move_child(visit_panel, -1)
 
 
 func _build_touch(root: Control) -> void:
@@ -271,6 +275,7 @@ func _build_touch(root: Control) -> void:
 
 	joystick = TouchJoystick.new()
 	joystick.name = "Joystick"
+	joystick.floating_mode = floating_joystick
 	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	joystick.move_changed.connect(_on_move_changed)
 	touch_layer.add_child(joystick)
@@ -283,7 +288,7 @@ func _build_touch(root: Control) -> void:
 	touch_layer.add_child(cluster)
 
 	place_btn = _action_btn("Place", COL_SKY, "res://assets/ui/icons/icon_place.png")
-	rotate_btn = _action_btn("Rotate", COL_PINK, "")
+	rotate_btn = _action_btn("Rotate", COL_PINK, "res://assets/ui/icons/icon_rotate.png")
 	cancel_btn = _action_btn("Cancel", COL_CORAL, "res://assets/ui/icons/icon_break.png")
 	jump_btn = _action_btn("Jump", COL_GREEN, "res://assets/ui/icons/icon_jump.png")
 	place_btn.pressed.connect(func():
@@ -320,25 +325,44 @@ func _layout_touch() -> void:
 		return
 	var vp := get_viewport().get_visible_rect().size
 	var short_side := minf(vp.x, vp.y)
+	var phone_like := short_side < 900.0 or (vp.x / maxf(vp.y, 1.0) > 1.8)
 	var scale := clampf(short_side / 828.0, 0.85, 1.45)
 	var joy_d := 132.0 * scale
 	var joy_pad := 28.0 * scale
-	var joy_size := Vector2(joy_d + joy_pad * 2.0, joy_d + joy_pad * 2.0 + 22.0 * scale)
+	joystick.floating_mode = floating_joystick
 	joystick.base_diameter = joy_d
 	joystick.knob_diameter = 56.0 * scale
 	joystick.activation_padding = joy_pad
-	joystick.custom_minimum_size = joy_size
-	joystick.anchor_left = 0.0
-	joystick.anchor_top = 1.0
-	joystick.anchor_right = 0.0
-	joystick.anchor_bottom = 1.0
-	joystick.offset_left = 4.0
-	joystick.offset_top = -joy_size.y - 8.0
-	joystick.offset_right = 4.0 + joy_size.x
-	joystick.offset_bottom = -8.0
+	var top_clear := (80.0 if phone_like else 96.0) * scale
+	var bottom_clear := (24.0 if phone_like else 28.0) * scale
+	if floating_joystick:
+		var frac := clampf(move_zone_width_fraction, 0.35, 0.48)
+		joystick.custom_minimum_size = Vector2.ZERO
+		joystick.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+		joystick.anchor_left = 0.0
+		joystick.anchor_top = 0.0
+		joystick.anchor_right = frac
+		joystick.anchor_bottom = 1.0
+		joystick.offset_left = 8.0
+		joystick.offset_top = top_clear
+		joystick.offset_right = 0.0
+		joystick.offset_bottom = -bottom_clear
+	else:
+		var joy_size := Vector2(joy_d + joy_pad * 2.0, joy_d + joy_pad * 2.0 + 22.0 * scale)
+		joystick.custom_minimum_size = joy_size
+		joystick.anchor_left = 0.0
+		joystick.anchor_top = 1.0
+		joystick.anchor_right = 0.0
+		joystick.anchor_bottom = 1.0
+		joystick.offset_left = 4.0
+		joystick.offset_top = -joy_size.y - 8.0
+		joystick.offset_right = 4.0 + joy_size.x
+		joystick.offset_bottom = -8.0
 	if joystick.has_method("_layout"):
 		joystick._layout()
 
+	look_area.anchor_left = 0.55
+	look_area.offset_top = top_clear
 	look_area.offset_bottom = -110.0 * scale
 
 	var cluster: Control = touch_layer.get_node_or_null("HouseActions")
@@ -485,10 +509,14 @@ func refresh_roster_from(players: Array) -> void:
 
 
 func open_catalog() -> void:
-	_catalog_open = true
-	catalog_panel.visible = true
-	if world:
-		world.player.release_mouse()
+	## Toggle: second tap closes; opening Catalog closes Visit (and vice versa).
+	if panels.is_open("catalog"):
+		panels.close("catalog")
+		return
+	panels.open("catalog")
+
+
+func _populate_catalog() -> void:
 	var grid: GridContainer = catalog_panel.get_node("Margin/VBox/Grid")
 	for c in grid.get_children():
 		c.queue_free()
@@ -500,8 +528,7 @@ func open_catalog() -> void:
 		_theme_button(b, Vector2(150, 72), COL_PANEL)
 		var def_id := id
 		b.pressed.connect(func():
-			catalog_panel.visible = false
-			_catalog_open = false
+			panels.close("catalog")
 			if world:
 				world.start_place(def_id)
 		)
@@ -509,10 +536,49 @@ func open_catalog() -> void:
 
 
 func open_visit_panel() -> void:
-	_visit_open = true
-	visit_panel.visible = true
-	if world:
+	if panels.is_open("visit"):
+		panels.close("visit")
+		return
+	panels.open("visit")
+
+
+func _on_panel_opened(id: String) -> void:
+	_catalog_open = panels.is_open("catalog")
+	_visit_open = panels.is_open("visit")
+	if world and world.player:
 		world.player.release_mouse()
+	if id == "catalog":
+		_populate_catalog()
+
+
+func _on_panel_closed(_id: String) -> void:
+	_catalog_open = panels.is_open("catalog")
+	_visit_open = panels.is_open("visit")
+
+
+func _on_panels_all_closed() -> void:
+	_catalog_open = false
+	_visit_open = false
+	if world and world.player and not (touch_layer and touch_layer.visible):
+		world.player.capture_mouse()
+
+
+func _return_to_meadow() -> void:
+	panels.close_all()
+	if world and world.has_method("go_voxel_world"):
+		world.go_voxel_world()
+	else:
+		SceneFlow.return_to_meadow()
+
+
+func _leave_or_meadow() -> void:
+	## Leave an invite visit when connected; otherwise return to the meadow.
+	panels.close_all()
+	if not NetClient.current_house.is_empty() and NetClient.current_role != "Owner":
+		NetClient.leave_house()
+		NetClient.enter_own_house()
+		return
+	_return_to_meadow()
 
 
 func _toggle_collab() -> void:

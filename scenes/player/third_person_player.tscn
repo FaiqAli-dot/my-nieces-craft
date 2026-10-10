@@ -3,23 +3,25 @@
 [ext_resource type="Script" path="res://scripts/player/third_person_controller.gd" id="1_tp"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_tp"]
-radius = 0.35
-height = 1.5
+radius = 0.38
+height = 1.8
 
 [node name="Player" type="CharacterBody3D"]
 collision_layer = 2
 collision_mask = 1
 floor_stop_on_slope = true
+floor_snap_length = 0.25
+safe_margin = 0.08
 script = ExtResource("1_tp")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.85, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 shape = SubResource("CapsuleShape3D_tp")
 
 [node name="ModelRoot" type="Node3D" parent="."]
 
 [node name="CameraPivot" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.55, 0)
 
 [node name="SpringArm3D" type="SpringArm3D" parent="CameraPivot"]
 spring_length = 4.2

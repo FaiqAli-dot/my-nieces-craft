@@ -7,7 +7,7 @@ Polished, child-friendly on-screen controls for CozyBlocks (first-person meadow)
 | Scene / script | Role |
 | --- | --- |
 | `scenes/ui/touch/touch_controls.tscn` | Safe-area shell: joystick + look + actions |
-| `scenes/ui/touch/virtual_joystick.tscn` | Analog move stick (dead zone, finger tracking) |
+| `scenes/ui/touch/virtual_joystick.tscn` | Floating left-zone stick (spawn at thumb; clamp beyond radius; configurable fixed mode) |
 | `scenes/ui/touch/look_area.tscn` | Right-side look drag (configurable sensitivity) |
 | `scenes/ui/touch/action_button.tscn` | Circular Jump / Break / Place / Craft buttons |
 | `scenes/ui/touch/touch_action_cluster.tscn` | Bottom-right button layout |
