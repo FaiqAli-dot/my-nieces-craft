@@ -34,6 +34,8 @@ func _ready() -> void:
 
 	if OS.get_environment("COZY_NET_AUTOSTART") != "0":
 		NetClient.connect_to_server()
+	else:
+		ui.set_status("Offline demo (server not started)")
 	if OS.get_environment("COZY_SCREENSHOTS") == "1":
 		await get_tree().create_timer(1.2).timeout
 		await _run_shot_harness()
@@ -323,36 +325,73 @@ func _run_shot_harness() -> void:
 			{"instance_id": "demo_table", "def_id": "table", "cell_x": 5, "cell_z": 5, "rotation": 0},
 			{"instance_id": "demo_bed", "def_id": "bed", "cell_x": 8, "cell_z": 2, "rotation": 90},
 			{"instance_id": "demo_lamp", "def_id": "lamp", "cell_x": 2, "cell_z": 8, "rotation": 0},
+			{"instance_id": "demo_plant", "def_id": "plant", "cell_x": 9, "cell_z": 9, "rotation": 0},
+			{"instance_id": "demo_bookshelf", "def_id": "bookshelf", "cell_x": 1, "cell_z": 6, "rotation": 90},
 		]
 		_rebuild_furniture(demo)
-		ui.open_catalog()
+		placement.can_decorate = true
+		player.global_position = Vector3(6.0, 0.1, 9.5)
+		player.yaw = PI
+		player.pitch = deg_to_rad(-12)
+		player.model_root.rotation.y = PI
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await _shot(out_dir.path_join("01_character_controller.png"))
-		placement.can_decorate = true
-		start_place("chair")
+		ui.open_catalog()
 		await get_tree().process_frame
 		await get_tree().process_frame
-		await _shot(out_dir.path_join("02_furniture_catalog_preview.png"))
-		placement.rotation_deg = 0
-		placement._anchor = Vector2i(1, 1)
+		await _shot(out_dir.path_join("02_furniture_catalog.png"))
+		ui.catalog_panel.visible = false
+		start_place("sofa")
+		placement._anchor = Vector2i(4, 7)
 		placement._valid = true
 		placement._update_preview_xform()
 		placement._apply_ghost(placement._preview, true)
+		await get_tree().process_frame
 		await _shot(out_dir.path_join("03_placement_valid.png"))
-		placement._anchor = Vector2i(5, 5)
+		placement._anchor = Vector2i(5, 5) # overlaps demo table
 		placement._valid = false
 		placement._update_preview_xform()
 		placement._apply_ghost(placement._preview, false)
+		await get_tree().process_frame
 		await _shot(out_dir.path_join("04_placement_invalid.png"))
 		cancel_placement()
 		ui.show_invite("DEMO01")
 		ui.open_visit_panel()
+		await get_tree().process_frame
 		await _shot(out_dir.path_join("05_house_invite_ui.png"))
+		ui.visit_panel.visible = false
+		# Fake remote friend for visual multiplayer evidence (automated MP test covers real sync).
+		var friend := RemotePlayer.new()
+		friend.setup("pid_friend", "Bob", "res://assets/models/characters/character-female-a.glb")
+		space.players_root.add_child(friend)
+		friend.global_position = Vector3(5.5, 0.1, 4.8)
+		friend.apply_state(Vector3(5.5, 0.1, 4.8), 0.2, false)
+		player.global_position = Vector3(6.2, 0.1, 9.2)
+		# yaw=0: SpringArm sits on +Z and looks toward -Z, framing Bob ahead.
+		player.yaw = 0.15
+		player.pitch = deg_to_rad(-12)
+		player.model_root.rotation.y = PI + 0.15
+		ui.set_status("House of Alice")
+		ui.role_label.text = "Role: Owner"
+		ui.set_collab(true)
+		ui.show_invite("AB12CD")
+		ui.refresh_roster_from([
+			{"display_name": "Alice", "player_id": "a"},
+			{"display_name": "Bob", "player_id": "b"},
+		])
+		await get_tree().process_frame
+		await get_tree().process_frame
+		await _shot(out_dir.path_join("06_two_players.png"))
+		# Simulate collaborative furniture already present
+		_spawn_furniture({"instance_id": "collab_chair", "def_id": "chair", "cell_x": 6, "cell_z": 7, "rotation": 180})
+		await get_tree().process_frame
+		await _shot(out_dir.path_join("07_collaborative_furniture.png"))
+
 	else:
 		await _shot(out_dir.path_join("01_character_controller.png"))
 		ui.open_catalog()
-		await _shot(out_dir.path_join("02_furniture_catalog_preview.png"))
+		await _shot(out_dir.path_join("02_furniture_catalog.png"))
 
 
 func _shot(path: String) -> void:

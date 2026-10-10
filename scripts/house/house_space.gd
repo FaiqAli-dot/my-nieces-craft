@@ -114,7 +114,9 @@ func _wall(parent: Node3D, pos: Vector3, size: Vector3) -> void:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.96, 0.9, 0.78)
 	mat.roughness = 0.95
-	mat.cull_mode = BaseMaterial3D.CULL_BACK
+	# Thin interior wall slabs must read from inside the room; disable backface
+	# cull so we never show the "hollow wall" look (separate from voxel mesher bug).
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mi.material_override = mat
 	body.add_child(mi)
 	var shape := CollisionShape3D.new()
