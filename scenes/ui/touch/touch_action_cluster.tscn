@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3 uid="uid://cozy_touch_actions"]
+
+[ext_resource type="Script" path="res://scripts/ui/touch/touch_action_cluster.gd" id="1"]
+
+[node name="TouchActionCluster" type="Control"]
+custom_minimum_size = Vector2(210, 240)
+script = ExtResource("1")

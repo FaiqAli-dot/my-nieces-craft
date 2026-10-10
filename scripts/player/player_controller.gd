@@ -5,11 +5,11 @@ class_name PlayerController
 const SPEED := 5.5
 const JUMP_VELOCITY := 6.2
 const MOUSE_SENS := 0.0024
-const TOUCH_LOOK_SENS := 0.0045
 const REACH := 6.0
 
 @export var world_path: NodePath
 @export var ui_path: NodePath
+@export var touch_look_sensitivity: float = 0.0045
 
 var inventory := Inventory.new()
 var crafting := CraftingSystem.new()
@@ -102,10 +102,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	# Look from touch
+	# Look from touch (LookArea already applies its own multiplier).
 	if touch_look != Vector2.ZERO:
-		look_yaw -= touch_look.x * TOUCH_LOOK_SENS
-		look_pitch -= touch_look.y * TOUCH_LOOK_SENS
+		look_yaw -= touch_look.x * touch_look_sensitivity
+		look_pitch -= touch_look.y * touch_look_sensitivity
 		look_pitch = clampf(look_pitch, deg_to_rad(-89), deg_to_rad(89))
 		touch_look = Vector2.ZERO
 

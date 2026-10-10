@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3 uid="uid://cozy_virtual_joystick"]
+
+[ext_resource type="Script" path="res://scripts/ui/touch/virtual_joystick.gd" id="1"]
+
+[node name="VirtualJoystick" type="Control"]
+custom_minimum_size = Vector2(220, 220)
+script = ExtResource("1")
