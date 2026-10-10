@@ -1,0 +1,25 @@
+[gd_scene load_steps=6 format=3 uid="uid://cozy_house"]
+
+[ext_resource type="Script" path="res://scripts/house/house_world.gd" id="1_hw"]
+[ext_resource type="Script" path="res://scripts/house/house_space.gd" id="2_hs"]
+[ext_resource type="PackedScene" uid="uid://cozy_tp_player" path="res://scenes/player/third_person_player.tscn" id="3_player"]
+[ext_resource type="Script" path="res://scripts/ui/house_ui.gd" id="4_ui"]
+[ext_resource type="Script" path="res://scripts/furniture/placement_controller.gd" id="5_place"]
+
+[node name="House" type="Node3D"]
+script = ExtResource("1_hw")
+
+[node name="HouseSpace" type="Node3D" parent="."]
+script = ExtResource("2_hs")
+
+[node name="FurnitureRoot" type="Node3D" parent="HouseSpace"]
+
+[node name="PlayersRoot" type="Node3D" parent="HouseSpace"]
+
+[node name="Player" parent="." instance=ExtResource("3_player")]
+
+[node name="HouseUI" type="CanvasLayer" parent="."]
+script = ExtResource("4_ui")
+
+[node name="PlacementController" type="Node" parent="."]
+script = ExtResource("5_place")

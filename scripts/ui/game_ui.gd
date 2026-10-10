@@ -209,19 +209,20 @@ func _build_ui() -> void:
 	craft_list.name = "List"
 	craft_v.add_child(craft_list)
 
-	menu_panel = _make_panel(root, "Menu", Vector2(360, 340))
+	menu_panel = _make_panel(root, "Menu", Vector2(360, 400))
 	menu_panel.visible = false
 	var menu_v: VBoxContainer = menu_panel.get_node("Margin/VBox")
 	for spec in [
 		["Save", save_game],
 		["Load", load_game],
+		["My House", go_to_house],
 		["Reset…", request_reset],
 		["Home", func(): if player: player.reset_to_spawn()],
 		["Close", toggle_menu],
 	]:
 		var b := Button.new()
 		b.text = spec[0]
-		_theme_button(b, Vector2(260, 52), COL_ACCENT)
+		_theme_button(b, Vector2(260, 52), COL_ACCENT if spec[0] != "My House" else COL_PINK)
 		b.pressed.connect(spec[1])
 		menu_v.add_child(b)
 
@@ -496,6 +497,11 @@ func load_game() -> void:
 		GameState.toast("Loaded!")
 	else:
 		GameState.toast("No save found")
+
+
+func go_to_house() -> void:
+	## Phase 2: leave the meadow sandbox for the third-person house scene.
+	get_tree().change_scene_to_file("res://scenes/house/house.tscn")
 
 
 func _handle_stick(event: InputEvent, is_move: bool) -> void:
