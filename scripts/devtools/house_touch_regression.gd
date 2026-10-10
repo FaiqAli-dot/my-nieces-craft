@@ -78,7 +78,7 @@ func _ready() -> void:
 	_world.player.set_touch_move(Vector2.ZERO)
 
 	print("=== Touch Results: %d passed, %d failed ===" % [passed, failed])
-	if OS.get_environment("COZY_HOUSE_TOUCH_QUIT") == "1":
+	if OS.get_environment("COZY_HOUSE_TOUCH_QUIT") == "1" or OS.get_environment("COZY_SMOKE_QUIT") == "1":
 		get_tree().quit(1 if failed > 0 else 0)
 
 
