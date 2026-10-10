@@ -29,6 +29,10 @@ func _ready() -> void:
 		var touch_test := Node.new()
 		touch_test.set_script(load("res://scripts/devtools/touch_controls_regression.gd"))
 		add_child(touch_test)
+	if OS.get_environment("COZY_FACE_SHOTS") == "1":
+		var face_shots := Node.new()
+		face_shots.set_script(load("res://scripts/devtools/face_winding_shots.gd"))
+		add_child(face_shots)
 	if OS.get_environment("COZY_SMOKE") == "1":
 		await get_tree().create_timer(1.5).timeout
 		_run_smoke()
