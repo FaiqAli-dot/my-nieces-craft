@@ -89,12 +89,15 @@ func _build_ui() -> void:
 	add_child(root)
 
 	var cross := ColorRect.new()
+	cross.name = "Crosshair"
 	cross.color = Color(1, 1, 1, 0.9)
 	cross.set_anchors_preset(Control.PRESET_CENTER)
 	cross.offset_left = -3
 	cross.offset_top = -3
 	cross.offset_right = 3
 	cross.offset_bottom = 3
+	# Must not steal captured-mouse clicks at screen center (breaks place/break).
+	cross.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(cross)
 
 	var top := HBoxContainer.new()
@@ -135,6 +138,7 @@ func _build_ui() -> void:
 	toast_label.offset_left = -220
 	toast_label.offset_right = 220
 	toast_label.offset_bottom = 110
+	toast_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if _font:
 		toast_label.add_theme_font_override("font", _font)
 		toast_label.add_theme_font_size_override("font_size", 28)
@@ -396,6 +400,17 @@ func toggle_inventory() -> void:
 	if _inventory_open:
 		_refresh_inventory_panel()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		_restore_play_mouse()
+
+
+func _restore_play_mouse() -> void:
+	## Return to captured look after closing Bag/Craft/Menu (desktop place/break need it).
+	if _inventory_open or _craft_open or _menu_open or confirm_panel.visible:
+		return
+	if touch_layer.visible:
+		return
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _refresh_inventory_panel() -> void:
@@ -421,6 +436,8 @@ func toggle_craft() -> void:
 	if _craft_open:
 		_build_craft_list()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		_restore_play_mouse()
 
 
 func toggle_menu() -> void:
@@ -428,6 +445,8 @@ func toggle_menu() -> void:
 	menu_panel.visible = _menu_open
 	if _menu_open:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		_restore_play_mouse()
 
 
 func _on_creative(enabled: bool) -> void:
@@ -460,6 +479,7 @@ func confirm_reset_yes() -> void:
 
 func confirm_reset_no() -> void:
 	confirm_panel.visible = false
+	_restore_play_mouse()
 
 
 func save_game() -> void:

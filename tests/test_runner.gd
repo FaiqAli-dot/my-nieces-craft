@@ -10,6 +10,7 @@ func _ready() -> void:
 	_test_inventory()
 	_test_crafting()
 	_test_placement_helpers()
+	await _test_crosshair_does_not_block_clicks()
 	await _test_world_serialize()
 	await _test_chunk_mesh_update()
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
@@ -80,6 +81,18 @@ func _test_placement_helpers() -> void:
 	var block_outside := AABB(Vector3(12, 5, 12), Vector3.ONE)
 	_assert(player_aabb.intersects(block_inside), "overlap detected")
 	_assert(not player_aabb.intersects(block_outside), "no overlap outside")
+
+
+func _test_crosshair_does_not_block_clicks() -> void:
+	## Phase 1.5 regression: crosshair ColorRect at screen center ate place/break.
+	var ui := GameUi.new()
+	add_child(ui)
+	await get_tree().process_frame
+	var cross: Control = ui.get_node_or_null("Root/Crosshair")
+	_assert(cross != null, "GameUI has Crosshair")
+	_assert(cross != null and cross.mouse_filter == Control.MOUSE_FILTER_IGNORE, "Crosshair ignores mouse")
+	ui.queue_free()
+	await get_tree().process_frame
 
 
 func _make_world() -> VoxelWorld:
