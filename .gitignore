@@ -14,6 +14,15 @@ export_presets.cfg
 *~
 *.tmp
 android/
+/build/
+/CozyBlocks/
+/CozyBlocks.pck
+/CozyBlocks.xcframework/
+/CozyBlocks.xcodeproj/
+/CozyBlocks.xcodeproj.broken/
+/MoltenVK.xcframework/
+/PrivacyInfo.xcprivacy
+/libgodot_*.xcframework/
 .mono/
 .env
 server_data/
