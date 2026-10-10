@@ -133,12 +133,13 @@ func _on_viewport_resized() -> void:
 	var vp := get_viewport().get_visible_rect().size
 	var short_side := minf(vp.x, vp.y)
 	var phone_like := short_side < 900.0 or (vp.x / maxf(vp.y, 1.0) > 1.8)
-	# Scale controls for phone vs tablet.
-	var joy_d := 132.0 if phone_like else 156.0
-	var joy_pad := 28.0 if phone_like else 40.0
-	var joy_size := Vector2(joy_d + joy_pad * 2.0, joy_d + joy_pad * 2.0 + 22.0)
+	# Scale with short side so tablet landscape keeps large kid-friendly targets.
+	var scale := clampf(short_side / 828.0, 0.85, 1.55)
+	var joy_d := 132.0 * scale
+	var joy_pad := 28.0 * scale
+	var joy_size := Vector2(joy_d + joy_pad * 2.0, joy_d + joy_pad * 2.0 + 22.0 * scale)
 	joystick.base_diameter = joy_d
-	joystick.knob_diameter = 56.0 if phone_like else 66.0
+	joystick.knob_diameter = 56.0 * scale
 	joystick.activation_padding = joy_pad
 	joystick.custom_minimum_size = joy_size
 	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
@@ -154,8 +155,10 @@ func _on_viewport_resized() -> void:
 		joystick._layout()
 
 	actions.set_compact(phone_like)
-	var aw := 200.0 if phone_like else 220.0
-	var ah := 230.0 if phone_like else 250.0
+	actions.primary_size = 92.0 * scale
+	actions.secondary_size = 76.0 * scale
+	var aw := (210.0 if phone_like else 240.0) * scale
+	var ah := (240.0 if phone_like else 280.0) * scale
 	actions.custom_minimum_size = Vector2(aw, ah)
 	actions.anchor_left = 1.0
 	actions.anchor_top = 1.0
@@ -169,7 +172,7 @@ func _on_viewport_resized() -> void:
 		actions._layout()
 
 	# Keep look zone clear of the hotbar band.
-	look_area.offset_bottom = -100.0 if phone_like else -120.0
+	look_area.offset_bottom = (-100.0 if phone_like else -130.0) * scale
 
 
 func get_action_button(action_name: String) -> ActionButton:

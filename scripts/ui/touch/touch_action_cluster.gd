@@ -59,30 +59,40 @@ func _layout() -> void:
 	var w := size.x
 	var h := size.y
 	# Jump — most prominent, bottom-right
-	jump_btn.button_size = primary_size
-	jump_btn.custom_minimum_size = Vector2(primary_size, primary_size)
-	jump_btn.size = Vector2(primary_size, primary_size)
-	jump_btn.position = Vector2(w - primary_size - 4.0, h - primary_size - 4.0)
+	_place_btn(jump_btn, primary_size, Vector2(w - primary_size - 4.0, h - primary_size - 4.0))
 
 	# Place — above jump, slightly left
-	place_btn.button_size = secondary_size
-	place_btn.custom_minimum_size = Vector2(secondary_size, secondary_size)
-	place_btn.size = Vector2(secondary_size, secondary_size)
-	place_btn.position = Vector2(w - secondary_size - 8.0, h - primary_size - secondary_size - 18.0)
+	_place_btn(
+		place_btn,
+		secondary_size,
+		Vector2(w - secondary_size - 8.0, h - primary_size - secondary_size - 18.0)
+	)
 
 	# Break — left of jump
-	break_btn.button_size = secondary_size
-	break_btn.custom_minimum_size = Vector2(secondary_size, secondary_size)
-	break_btn.size = Vector2(secondary_size, secondary_size)
-	break_btn.position = Vector2(w - primary_size - secondary_size - 16.0, h - secondary_size - 28.0)
+	_place_btn(
+		break_btn,
+		secondary_size,
+		Vector2(w - primary_size - secondary_size - 16.0, h - secondary_size - 28.0)
+	)
 
 	# Craft — compact secondary, top of cluster
-	if craft_btn.visible:
-		var cs := 64.0
-		craft_btn.button_size = cs
-		craft_btn.custom_minimum_size = Vector2(cs, cs)
-		craft_btn.size = Vector2(cs, cs)
-		craft_btn.position = Vector2(8.0, 4.0)
+	if craft_btn and craft_btn.visible:
+		var cs := clampf(secondary_size * 0.85, 56.0, 88.0)
+		_place_btn(craft_btn, cs, Vector2(8.0, 4.0))
+
+
+func _place_btn(btn: ActionButton, sz: float, pos: Vector2) -> void:
+	if btn == null:
+		return
+	btn.button_size = sz
+	btn.custom_minimum_size = Vector2(sz, sz)
+	btn.size = Vector2(sz, sz)
+	btn.position = pos
+	btn.pivot_offset = Vector2(sz, sz) * 0.5
+	if btn.has_method("_apply_style"):
+		btn._apply_style(btn._pressed_visual)
+	if btn.has_method("_layout_children"):
+		btn._layout_children()
 
 
 func get_button(action_name: String) -> ActionButton:
@@ -99,10 +109,13 @@ func get_button(action_name: String) -> ActionButton:
 
 
 func set_compact(compact: bool) -> void:
-	## Phones: keep Jump/Break/Place; hide Craft label-area by shrinking cluster.
+	## Phones: keep Jump/Break/Place; Craft stays in the top-bar Craft button.
 	show_craft = not compact
 	if craft_btn:
 		craft_btn.visible = show_craft
-	primary_size = 86.0 if compact else 92.0
-	secondary_size = 72.0 if compact else 76.0
+	# Preserve caller-configured primary/secondary sizes; only nudge on compact phones
+	# when sizes still look like defaults.
+	if compact:
+		primary_size = minf(primary_size, 92.0)
+		secondary_size = minf(secondary_size, 80.0)
 	_layout()

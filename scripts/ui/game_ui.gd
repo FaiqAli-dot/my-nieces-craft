@@ -234,8 +234,10 @@ func _layout_hotbar() -> void:
 	if hotbar_tray == null:
 		return
 	var vp := get_viewport().get_visible_rect().size
-	var phone_like := minf(vp.x, vp.y) < 900.0 or (vp.x / maxf(vp.y, 1.0) > 1.8)
-	var slot := 64.0 if phone_like else 76.0
+	var short_side := minf(vp.x, vp.y)
+	var phone_like := short_side < 900.0 or (vp.x / maxf(vp.y, 1.0) > 1.8)
+	var scale := clampf(short_side / 828.0, 0.85, 1.55)
+	var slot := (64.0 if phone_like else 72.0) * scale
 	hotbar_tray.set_slot_size(slot)
 	var width := Inventory.HOTBAR_SIZE * (slot + 8.0) + 36.0
 	var height := slot + 28.0
