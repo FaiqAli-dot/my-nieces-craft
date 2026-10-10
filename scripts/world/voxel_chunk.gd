@@ -69,15 +69,15 @@ func rebuild_mesh() -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var atlas := BlockDB.get_atlas_texture()
+	# Per-face shade — enough contrast to read form without crushing light wood to charcoal
 	var faces := [
-		{"n": Vector3.UP, "d": [Vector3(0,1,0), Vector3(1,1,0), Vector3(1,1,1), Vector3(0,1,1)], "key": "top", "ox":0,"oy":1,"oz":0},
-		{"n": Vector3.DOWN, "d": [Vector3(0,0,1), Vector3(1,0,1), Vector3(1,0,0), Vector3(0,0,0)], "key": "bottom", "ox":0,"oy":-1,"oz":0},
-		{"n": Vector3.FORWARD, "d": [Vector3(1,0,0), Vector3(0,0,0), Vector3(0,1,0), Vector3(1,1,0)], "key": "side", "ox":0,"oy":0,"oz":-1}, # -Z
-		{"n": Vector3.BACK, "d": [Vector3(0,0,1), Vector3(1,0,1), Vector3(1,1,1), Vector3(0,1,1)], "key": "side", "ox":0,"oy":0,"oz":1}, # +Z
-		{"n": Vector3.LEFT, "d": [Vector3(0,0,0), Vector3(0,0,1), Vector3(0,1,1), Vector3(0,1,0)], "key": "side", "ox":-1,"oy":0,"oz":0},
-		{"n": Vector3.RIGHT, "d": [Vector3(1,0,1), Vector3(1,0,0), Vector3(1,1,0), Vector3(1,1,1)], "key": "side", "ox":1,"oy":0,"oz":0},
+		{"n": Vector3.UP, "d": [Vector3(0,1,0), Vector3(1,1,0), Vector3(1,1,1), Vector3(0,1,1)], "key": "top", "ox":0,"oy":1,"oz":0, "shade": Color(1.0, 1.0, 0.96)},
+		{"n": Vector3.DOWN, "d": [Vector3(0,0,1), Vector3(1,0,1), Vector3(1,0,0), Vector3(0,0,0)], "key": "bottom", "ox":0,"oy":-1,"oz":0, "shade": Color(0.50, 0.48, 0.45)},
+		{"n": Vector3.FORWARD, "d": [Vector3(1,0,0), Vector3(0,0,0), Vector3(0,1,0), Vector3(1,1,0)], "key": "side", "ox":0,"oy":0,"oz":-1, "shade": Color(0.70, 0.72, 0.74)},
+		{"n": Vector3.BACK, "d": [Vector3(0,0,1), Vector3(1,0,1), Vector3(1,1,1), Vector3(0,1,1)], "key": "side", "ox":0,"oy":0,"oz":1, "shade": Color(0.86, 0.84, 0.80)},
+		{"n": Vector3.LEFT, "d": [Vector3(0,0,0), Vector3(0,0,1), Vector3(0,1,1), Vector3(0,1,0)], "key": "side", "ox":-1,"oy":0,"oz":0, "shade": Color(0.66, 0.68, 0.70)},
+		{"n": Vector3.RIGHT, "d": [Vector3(1,0,1), Vector3(1,0,0), Vector3(1,1,0), Vector3(1,1,1)], "key": "side", "ox":1,"oy":0,"oz":0, "shade": Color(0.92, 0.90, 0.86)},
 	]
-	# FORWARD in Godot is -Z
 	var collider := ConcavePolygonShape3D.new()
 	var coll_faces: PackedVector3Array = PackedVector3Array()
 	var vert_count := 0
@@ -102,25 +102,37 @@ func rebuild_mesh() -> void:
 							chunk_pos.y * SIZE + ny,
 							chunk_pos.z * SIZE + nz
 						)
-					# Hide face against opaque solid neighbors
 					if neighbor != 0 and not BlockDB.is_transparent(neighbor):
 						continue
 					var uv_rect: Rect2 = BlockDB.get_face_uv(id, str(f["key"]))
+					var inset_x := uv_rect.size.x * (0.5 / 64.0)
+					var inset_y := uv_rect.size.y * (0.5 / 64.0)
+					var u0 := uv_rect.position.x + inset_x
+					var u1 := uv_rect.position.x + uv_rect.size.x - inset_x
+					var v0 := uv_rect.position.y + inset_y
+					var v1 := uv_rect.position.y + uv_rect.size.y - inset_y
 					var verts: Array = f["d"]
 					var uvs := [
-						Vector2(uv_rect.position.x, uv_rect.position.y + uv_rect.size.y),
-						Vector2(uv_rect.position.x + uv_rect.size.x, uv_rect.position.y + uv_rect.size.y),
-						Vector2(uv_rect.position.x + uv_rect.size.x, uv_rect.position.y),
-						Vector2(uv_rect.position.x, uv_rect.position.y),
+						Vector2(u0, v1),
+						Vector2(u1, v1),
+						Vector2(u1, v0),
+						Vector2(u0, v0),
 					]
-					# two triangles: 0,1,2 and 0,2,3
+					var shade: Color = f["shade"]
+					# Gentle world-space grass patches (cheerful tonal variation, not speckles)
+					if str(f["key"]) == "top" and BlockDB.get_block_name(id) == "grass":
+						var wx := chunk_pos.x * SIZE + x
+						var wz := chunk_pos.z * SIZE + z
+						var patch := 0.94 + 0.10 * sin(float(wx) * 0.31) * cos(float(wz) * 0.27)
+						patch += 0.04 * sin(float(wx + wz) * 0.17)
+						shade = Color(shade.r * patch, shade.g * minf(patch * 1.02, 1.08), shade.b * patch)
 					var order := [0, 1, 2, 0, 2, 3]
 					for oi in order:
 						st.set_normal(f["n"])
+						st.set_color(shade)
 						st.set_uv(uvs[oi])
 						st.add_vertex(origin + verts[oi])
 						vert_count += 1
-					# collision
 					if BlockDB.is_solid(id):
 						for oi in order:
 							coll_faces.append(origin + verts[oi])
@@ -131,8 +143,9 @@ func rebuild_mesh() -> void:
 		var mesh: ArrayMesh = st.commit()
 		var mat := StandardMaterial3D.new()
 		mat.albedo_texture = atlas
+		mat.vertex_color_use_as_albedo = true
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-		mat.roughness = 0.9
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 		mat.alpha_scissor_threshold = 0.05
 		if mesh != null:

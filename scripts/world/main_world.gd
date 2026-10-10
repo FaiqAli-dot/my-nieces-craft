@@ -1,5 +1,5 @@
 extends Node3D
-## Main sandbox scene bootstrap: lighting, world, player, showcase, UI.
+## Main sandbox scene bootstrap: lighting, meadow, player, garden, UI.
 
 @onready var world: VoxelWorld = $VoxelWorld
 @onready var player: PlayerController = $Player
@@ -8,9 +8,8 @@ extends Node3D
 
 func _ready() -> void:
 	_setup_environment()
-	# Scatter a few nature props near spawn for art-direction evaluation (not a village)
-	_scatter_props()
-	# Force touch controls visible when env set (for screenshots)
+	var dresser := MeadowDresser.new()
+	dresser.dress(self)
 	if OS.get_environment("COZY_FORCE_TOUCH") == "1" or OS.get_environment("COZY_SCREENSHOTS") == "1":
 		GameState.touch_controls_forced = true
 		ui._detect_touch()
@@ -18,7 +17,6 @@ func _ready() -> void:
 		var harness := Node.new()
 		harness.set_script(load("res://scripts/devtools/screenshot_harness.gd"))
 		add_child(harness)
-	# Auto screenshot / smoke helpers
 	if OS.get_environment("COZY_SMOKE") == "1":
 		await get_tree().create_timer(1.5).timeout
 		_run_smoke()
@@ -29,91 +27,63 @@ func _setup_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
 	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.40, 0.70, 0.95)
-	sky_mat.sky_horizon_color = Color(0.75, 0.88, 0.98)
-	sky_mat.ground_bottom_color = Color(0.55, 0.70, 0.45)
-	sky_mat.ground_horizon_color = Color(0.70, 0.82, 0.55)
-	sky_mat.sun_angle_max = 40.0
+	# Clear sky blue, distinct from meadow green horizon
+	sky_mat.sky_top_color = Color(0.18, 0.48, 0.90)
+	sky_mat.sky_horizon_color = Color(0.55, 0.78, 0.96)
+	sky_mat.ground_bottom_color = Color(0.18, 0.38, 0.14)
+	sky_mat.ground_horizon_color = Color(0.28, 0.50, 0.22)
+	sky_mat.sun_angle_max = 26.0
+	sky_mat.sun_curve = 0.08
 	sky.sky_material = sky_mat
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.85, 0.90, 0.95)
-	env.ambient_light_energy = 0.55
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.ambient_light_color = Color(0.55, 0.62, 0.72)
+	env.ambient_light_energy = 0.32
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_exposure = 0.72
+	env.tonemap_white = 1.05
+	env.ssao_enabled = false
 	env.glow_enabled = false
-	# Optional HDRI contribution if present
-	var hdr_path := "res://assets/sky/kloppenheim_06_puresky_1k.hdr"
-	if ResourceLoader.exists(hdr_path):
-		# Keep procedural sky for consistent evaluation; HDRI available in showcase docs
-		pass
+	env.fog_enabled = true
+	env.fog_light_color = Color(0.48, 0.66, 0.88)
+	env.fog_density = 0.005
+	env.fog_aerial_perspective = 0.12
+	env.fog_sky_affect = 0.04
 	var world_env := WorldEnvironment.new()
 	world_env.environment = env
 	add_child(world_env)
 
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-45, 35, 0)
-	sun.light_energy = 1.15
+	sun.rotation_degrees = Vector3(-48, 40, 0)
+	sun.light_color = Color(1.0, 0.94, 0.78)
+	sun.light_energy = 0.85
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 80.0
+	sun.shadow_opacity = 0.65
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	sun.directional_shadow_max_distance = 70.0
 	add_child(sun)
 
-
-func _scatter_props() -> void:
-	var props := [
-		["res://assets/models/nature/tree_oak.glb", Vector3(20, VoxelWorld.GROUND_Y + 1, 20), 0.8],
-		["res://assets/models/nature/tree_pineDefaultA.glb", Vector3(24, VoxelWorld.GROUND_Y + 1, 18), 0.8],
-		["res://assets/models/nature/rock_largeA.glb", Vector3(28, VoxelWorld.GROUND_Y + 1, 22), 1.0],
-		["res://assets/models/nature/flower_yellowA.glb", Vector3(30, VoxelWorld.GROUND_Y + 1, 26), 1.2],
-		["res://assets/models/nature/grass_large.glb", Vector3(26, VoxelWorld.GROUND_Y + 1, 28), 1.0],
-	]
-	var root := Node3D.new()
-	root.name = "AmbientProps"
-	add_child(root)
-	for p in props:
-		if not ResourceLoader.exists(p[0]):
-			continue
-		var node: Node3D = load(p[0]).instantiate()
-		node.position = p[1]
-		node.scale = Vector3.ONE * float(p[2])
-		root.add_child(node)
-		_fix_kenney_materials(node)
-
-
-func _fix_kenney_materials(node: Node) -> void:
-	if node is MeshInstance3D:
-		var mi := node as MeshInstance3D
-		if mi.mesh != null:
-			for si in mi.mesh.get_surface_count():
-				var mat: Material = mi.get_active_material(si)
-				if mat == null:
-					mat = mi.mesh.surface_get_material(si)
-				if mat is StandardMaterial3D:
-					var sm := (mat as StandardMaterial3D).duplicate() as StandardMaterial3D
-					sm.metallic = 0.0
-					sm.roughness = maxf(sm.roughness, 0.75)
-					mi.set_surface_override_material(si, sm)
-	for c in node.get_children():
-		_fix_kenney_materials(c)
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(-25, -120, 0)
+	fill.light_color = Color(0.60, 0.72, 0.95)
+	fill.light_energy = 0.2
+	fill.shadow_enabled = false
+	add_child(fill)
 
 
 func _run_smoke() -> void:
-	# Automated gameplay smoke for headless/graphical verification
 	print("[SMOKE] start")
-	player.inventory.select(4) # wood
-	# Break a ground block nearby
+	player.inventory.select(4)
 	var t := Vector3i(33, VoxelWorld.GROUND_Y, 32)
 	var drop := world.break_block(t.x, t.y, t.z)
 	print("[SMOKE] break drop=", drop)
 	player.inventory.add_item(drop, 1)
-	# Place a wood block
 	var place := Vector3i(33, VoxelWorld.GROUND_Y + 1, 32)
 	if world.can_place_at(place.x, place.y, place.z, player.player_aabb()):
 		world.set_block(place.x, place.y, place.z, BlockDB.get_id("wood"), true)
 		print("[SMOKE] placed wood")
-	# Craft planks
 	var ok := player.crafting.craft("wood_to_planks", player.inventory)
 	print("[SMOKE] craft=", ok)
-	# Save / load
 	var saved := SaveGame.save_world(world, player.inventory)
 	print("[SMOKE] save=", saved)
 	print("[SMOKE] done")

@@ -1,84 +1,60 @@
-# Asset Manifest — CozyBlocks Phase 1
+# Asset Manifest — CozyBlocks (Phase 1.5)
 
-All third-party packages were downloaded into the repository (no runtime URL dependencies). Licenses copied under `assets/licenses/` where provided by the pack.
+All third-party packages are vendored in the repository (no runtime URL dependencies). Licenses live under `assets/licenses/`.
 
 ## Successfully integrated
 
-### Kenney — Nature Kit
-- **Source:** https://kenney.nl/assets/nature-kit
-- **License:** CC0 1.0 (see `assets/licenses/kenney_nature-kit.txt`)
-- **Path:** `assets/models/nature/*.glb`
-- **Included sample:** tree_oak, tree_pineDefaultA, tree_detailed, tree_cone, rock_*, grass*, flower_*, plant_bush*, cactus_*, mushroom_*, fence_simple, path_stone
+### Quaternius — LowPoly Animated Animals (Phase 1.5)
+- **Source:** https://quaternius.itch.io/lowpoly-animated-animals (official itch.io claim download)
+- **License:** CC0 — `assets/licenses/quaternius_lowpoly_animated_animals.txt`
+- **Retry note:** `assets/licenses/quaternius_itch_retry.txt` (Google Drive was **not** used; prior Drive rate-limit is documented)
+- **Path:** `assets/models/animals/quaternius/{Cow,Sheep,Pig,Pug}.fbx`
+- **Used:** Animal pen in the curated garden showcase, with painted toy materials + idle bob when FBX clips are unavailable
+- **Rejected from pack:** Horse, Llama, Zebra, and format duplicates — kept a small cohesive farm set only
 
-### Kenney — Mini Forest
-- **Source:** https://kenney.nl/assets/mini-forest
-- **License:** CC0 (`assets/licenses/kenney_mini-forest.txt`)
-- **Path:** `assets/models/props/` (tree, tree-high, rocks-*, plant, patch-grass + colormap)
-
-### Kenney — Furniture Kit
-- **Source:** https://kenney.nl/assets/furniture-kit
-- **License:** CC0 (`assets/licenses/kenney_furniture-kit.txt`)
-- **Path:** `assets/models/furniture/` (chair, table, bedSingle, desk, lamp, bookcase, bear, fridge, plants, rug, toilet, …)
-
-### Kenney — Blocky Characters / Mini Characters
-- **Sources:** https://kenney.nl/assets/blocky-characters , https://kenney.nl/assets/mini-characters
+### Kenney — Nature Kit / Mini Forest / Furniture Kit
 - **License:** CC0
-- **Path:** `assets/models/characters/`
+- **Paths:** `assets/models/nature/`, `assets/models/props/`, `assets/models/furniture/`
+- **Phase 1.5 use:** Meadow trees/rocks/flowers; garden flower nook + cozy corner (chair/table/plant/bear)
+- **Materials:** Forced non-metallic paint overrides so washed Kenney imports stay saturated under daylight
 
-### Kenney — Prototype Textures
-- **Source:** https://kenney.nl/assets/prototype-textures
-- **License:** CC0
-- **Path:** `assets/textures/prototype/`
-
-### Kenney — Audio (Impact, Interface, RPG)
-- **Sources:** kenney.nl impact-sounds / interface-sounds / rpg-audio
-- **License:** CC0
-- **Path:** `assets/audio/{impact,interface,rpg}/`
-
-### Kenney — Skyboxes / UI Pack RPG / Input Prompts / Tiny Farm
-- **Paths:** `assets/sky/skybox-*.png`, `assets/ui/`, `assets/ui/prompts/` (if extracted), `assets/textures/farm_tiles/`
-- **License:** CC0
-- **Notes:** Tiny Farm is **2D tiles** (not 3D animals). Used as farm art reference / tile sheet only.
+### Kenney — Characters, Prototype Textures, Audio, UI / Skybox packs
+- **Paths:** `assets/models/characters/`, `assets/textures/prototype/`, `assets/audio/`, `assets/ui/`, `assets/sky/`
+- **Notes:** Available for later; Phase 1.5 world dressing prefers Nature Kit + original voxels
 
 ### Poly Haven
-- **Source:** https://polyhaven.com/
-- **License:** CC0 1.0 (`assets/licenses/polyhaven.txt`)
-- **HDRI:** `assets/sky/kloppenheim_06_puresky_1k.hdr`
-- **Textures (1k diff/nor/rough):** grass_path_2, brown_mud_03, rock_face_03, wood_table_001, sandy_gravel_02 under `assets/textures/polyhaven/`
+- **License:** CC0 — `assets/licenses/polyhaven.txt`
+- **Path:** `assets/sky/kloppenheim_06_puresky_1k.hdr`, `assets/textures/polyhaven/`
+- **Status:** Kept on disk; **not** used as primary meadow materials (photoreal vs toy voxels)
 
-### Khronos glTF Sample Models (animal fallback)
-- **Source:** https://github.com/KhronosGroup/glTF-Sample-Models
+### Khronos glTF Sample Models
 - **Path:** `assets/models/animals/Fox.glb`, `Duck.glb`
-- **License notes:** See `assets/licenses/khronos_gltf_sample_models.txt`
-  - Fox: CC0 (Cesium)
-  - Duck: historically CC-BY from SCEA — retained only as temporary animal preview; attributed in licenses file
+- **Phase 1.5 status:** **Removed from showcase** (style clash with Quaternius farm set). Files retained for reference/attribution only — see licenses
 
-### CozyBlocks generated block textures
-- **Path:** `assets/textures/blocks/*.png`
-- **License:** project original (simple procedural tiles for voxel faces)
+### CozyBlocks original block textures (Phase 1.5 rewrite)
+- **Path:** `assets/textures/blocks/*.png` (+ `path_stone.png`)
+- **License:** project original
+- **Notes:** Softer toy tiles without hard per-face borders (borders caused a bright seam grid). UV half-texel inset in `voxel_chunk.gd`
+
+### CozyBlocks animal paint textures
+- **Path:** `assets/textures/animals/{cow_spots,sheep_wool,pig_pink,pug_brown}.png`
+- **License:** project original — applied over Quaternius meshes for readable kid-friendly colors
 
 ### Font
-- **Nunito Bold** at `assets/fonts/Nunito-Bold.ttf` (SIL OFL via Google Fonts distribution)
+- **Nunito Bold** — `assets/fonts/Nunito-Bold.ttf` (SIL OFL)
 
-## Failed / blocked sources
+## Failed / blocked / rejected
 
-### Quaternius — Ultimate Animated Animals / Ultimate Stylized Nature
-- **Source:** https://quaternius.com/ (packs distribute via Google Drive)
-- **Attempt:** `gdown` folder download of Drive IDs linked from Quaternius pack pages (2026-10-09)
-- **Result:** **FAILED** — Google Drive error: *“Too many users have viewed or downloaded this file recently”*
-- **Retry:** Individual file downloads also rate-limited; itch.io page for lowpoly animals had no anonymous upload IDs exposed
-- **Local note:** `assets/licenses/quaternius_FAILED.txt`
-- **Fallback used:** Kenney furniture bear + Khronos Fox/Duck for Animals showcase section; Kenney nature/mini-forest for vegetation
+| Source | Outcome | Why |
+|--------|---------|-----|
+| Quaternius via Google Drive (Phase 1) | Failed | Drive “too many users” rate limit — do not loop |
+| Quaternius via itch.io (Phase 1.5) | **Success** | Official `download_url` claim → ZIP mirror |
+| OpenGameArt Posable Poultry | Not integrated | `.blend` only; no Blender in env |
+| Kenney Toon Characters | Skipped for 3D | 2D PNG parts |
+| Extra Quaternius species | Rejected | Avoid asset-count bloat; farm quartet is enough |
+| Poly Haven as world albedo | Rejected for meadow | Style mismatch with toy voxels |
+| Khronos Fox/Duck in garden | Removed from active showcase | Different style family than Quaternius |
 
-### OpenGameArt — Posable Poultry
-- **Source:** https://opengameart.org/content/posable-poultry
-- **Downloaded:** `chickens.zip` (`.blend` only)
-- **Result:** Not integrated — Blender not available in the environment to convert to GLB
-- **Note:** `assets/licenses/opengameart_posable_poultry.txt`
+## Inventory
 
-### Kenney — Toon Characters
-- **Downloaded then skipped for 3D showcase:** pack is 2D PNG character parts, not GLB models
-
-## Full imported file inventory
-
-Run `find assets -type f | sort` in the repo for the complete list. Representative showcase models are documented in `docs/ASSET_EVALUATION.md`.
+Run `find assets -type f | sort` for the full tree. Curated garden layout is documented in `docs/ASSET_EVALUATION.md`.

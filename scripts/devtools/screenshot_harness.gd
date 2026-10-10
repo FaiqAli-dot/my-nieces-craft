@@ -1,5 +1,5 @@
 extends Node
-## Captures PNG screenshots for walkthrough artifacts when COZY_SCREENSHOTS=1.
+## Phase 1.5 screenshot harness — same viewpoints as Phase 1 plus garden extras.
 
 @onready var main := get_parent()
 
@@ -8,7 +8,7 @@ func _ready() -> void:
 		queue_free()
 		return
 	GameState.touch_controls_forced = true
-	await get_tree().create_timer(2.0).timeout
+	await get_tree().create_timer(2.2).timeout
 	await _capture_all()
 	if OS.get_environment("COZY_SMOKE_QUIT") == "1":
 		get_tree().quit(0)
@@ -33,65 +33,72 @@ func _capture_all() -> void:
 
 	var world: VoxelWorld = main.get_node("VoxelWorld")
 	var showcase: Node3D = main.get_node("Showcase")
-	var base := showcase.global_position
 
-	# 1) Main building area — stand near spawn looking at ambient Kenney props (-Z forward)
-	_aim(player, Vector3(26, 7.0, 32), 0.0, -0.18)
+	# 01 main meadow — shows path, sand, trees, flower clusters, distant fill
+	_aim(player, Vector3(28, 7.5, 46), 0.15, -0.24)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("01_main_building_area.png"))
 
-	# Build a small house near spawn
-	var wood := BlockDB.get_id("wood")
+	# Compact playhouse: all light warm planks + leaf roof (friendly toy, not charcoal)
 	var planks := BlockDB.get_id("planks")
+	var leaves := BlockDB.get_id("leaves")
+	var glass := BlockDB.get_id("glass")
 	var wool := BlockDB.get_id("wool_pink")
-	for x in range(34, 40):
-		for z in range(34, 40):
+	for x in range(35, 39):
+		for z in range(35, 39):
 			world.set_block(x, VoxelWorld.GROUND_Y + 1, z, planks, true)
 	for y in range(VoxelWorld.GROUND_Y + 2, VoxelWorld.GROUND_Y + 5):
-		for x in range(34, 40):
-			world.set_block(x, y, 34, wood, true)
-			world.set_block(x, y, 39, wood, true)
-		for z in range(34, 40):
-			world.set_block(34, y, z, wood, true)
-			world.set_block(39, y, z, wood, true)
-	for x in range(34, 40):
-		for z in range(34, 40):
-			world.set_block(x, VoxelWorld.GROUND_Y + 5, z, wool, true)
-	world.set_block(36, VoxelWorld.GROUND_Y + 2, 34, 0, true)
-	world.set_block(37, VoxelWorld.GROUND_Y + 2, 34, 0, true)
-	world.set_block(36, VoxelWorld.GROUND_Y + 3, 34, 0, true)
-	world.set_block(37, VoxelWorld.GROUND_Y + 3, 34, 0, true)
+		for x in range(35, 39):
+			world.set_block(x, y, 35, planks, true)
+			world.set_block(x, y, 38, planks, true)
+		for z in range(35, 39):
+			world.set_block(35, y, z, planks, true)
+			world.set_block(38, y, z, planks, true)
+	for x in range(35, 39):
+		for z in range(35, 39):
+			world.set_block(x, VoxelWorld.GROUND_Y + 5, z, leaves, true)
+	world.set_block(36, VoxelWorld.GROUND_Y + 2, 35, 0, true)
+	world.set_block(37, VoxelWorld.GROUND_Y + 2, 35, 0, true)
+	world.set_block(36, VoxelWorld.GROUND_Y + 3, 35, 0, true)
+	world.set_block(37, VoxelWorld.GROUND_Y + 3, 35, 0, true)
+	world.set_block(38, VoxelWorld.GROUND_Y + 3, 36, glass, true)
+	world.set_block(38, VoxelWorld.GROUND_Y + 3, 37, glass, true)
+	world.set_block(35, VoxelWorld.GROUND_Y + 2, 35, wool, true)
 
-	# Stand SE of house; yaw = atan2(-dir.x, -dir.z) so camera -Z faces the house
-	var house_center := Vector3(37, 7.0, 37)
-	var cam_pos := Vector3(44, 8.0, 46)
+	var house_center := Vector3(36.5, 6.5, 36.5)
+	var cam_pos := Vector3(40.5, 7.2, 41.5)
 	var dir := (house_center - cam_pos).normalized()
 	var yaw := atan2(-dir.x, -dir.z)
-	_aim(player, cam_pos, yaw, -0.32)
+	_aim(player, cam_pos, yaw, -0.18)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("02_built_structure.png"))
 
-	# Showcase: camera looks -Z, so stand at higher Z than each section
-	# Sections at local z = 0,8,16,24,32 → world z = base.z + local
-	var section_zs := [0.0, 8.0, 16.0, 24.0, 32.0]
-	var names := [
-		"03_showcase_environment.png",
-		"04_showcase_animals.png",
-		"05_showcase_furniture.png",
-		"06_showcase_materials.png",
-		"06b_showcase_other.png",
-	]
-	for i in 4:
-		var sz: float = base.z + section_zs[i]
-		_aim(player, Vector3(base.x, base.y + 2.4, sz + 6.0), 0.0, -0.2)
-		await get_tree().process_frame
-		await get_tree().process_frame
-		await _shot(out_dir.path_join(names[i]))
+	# Garden / animals — close eye-level framing of the pen (keepout clears MM trees)
+	var base := showcase.global_position
+	_aim(player, base + Vector3(0.0, 1.9, 5.2), 0.0, -0.08)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await _shot(out_dir.path_join("04_showcase_animals.png"))
 
-	# Crafting UI over the house
-	_aim(player, cam_pos, yaw, -0.32)
+	# Flower nook
+	_aim(player, base + Vector3(-6, 2.4, 12), 0.0, -0.2)
+	await get_tree().process_frame
+	await _shot(out_dir.path_join("03_showcase_environment.png"))
+
+	# Sitting corner
+	_aim(player, base + Vector3(6, 2.4, 12), 0.0, -0.2)
+	await get_tree().process_frame
+	await _shot(out_dir.path_join("05_showcase_furniture.png"))
+
+	# Block palette
+	_aim(player, base + Vector3(0, 2.5, 18), 0.0, -0.25)
+	await get_tree().process_frame
+	await _shot(out_dir.path_join("06_showcase_materials.png"))
+
+	# Crafting UI
+	_aim(player, cam_pos, yaw, -0.3)
 	ui.toggle_craft()
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("07_crafting_ui.png"))
@@ -100,6 +107,22 @@ func _capture_all() -> void:
 	ui._detect_touch()
 	await get_tree().process_frame
 	await _shot(out_dir.path_join("08_touch_controls.png"))
+
+	# Extra: path / meadow overview
+	_aim(player, Vector3(26, 9.0, 48), 0.35, -0.35)
+	await get_tree().process_frame
+	await _shot(out_dir.path_join("09_meadow_path_overview.png"))
+
+	# Extra: garden wide
+	_aim(player, base + Vector3(-2, 4.0, 16), 0.1, -0.35)
+	await get_tree().process_frame
+	await _shot(out_dir.path_join("10_garden_wide.png"))
+
+	# Wide meadow — FG path/sand, MG house+trees+flowers+fence, BG pond/knolls/tree line
+	_aim(player, Vector3(34, 9.2, 50), -0.35, -0.30)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await _shot(out_dir.path_join("11_wide_meadow.png"))
 
 	print("[SHOTS] saved to ", out_dir)
 
