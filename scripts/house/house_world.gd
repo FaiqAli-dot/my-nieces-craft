@@ -67,6 +67,10 @@ func _ready() -> void:
 		var p16 := Node.new()
 		p16.set_script(load("res://scripts/devtools/phase16_shots.gd"))
 		add_child(p16)
+	if OS.get_environment("COZY_HOUSE_FACING_SIZE_SHOTS") == "1":
+		var hfs := Node.new()
+		hfs.set_script(load("res://scripts/devtools/house_facing_size_shots.gd"))
+		add_child(hfs)
 	if OS.get_environment("COZY_SCREENSHOTS") == "1":
 		await get_tree().create_timer(1.2).timeout
 		await _run_shot_harness()
@@ -143,15 +147,9 @@ func _on_welcomed(_info: Dictionary) -> void:
 func _on_house_state(state: Dictionary) -> void:
 	var house: Dictionary = state.get("house", {})
 	ui.apply_house_state(state)
-	placement.can_decorate = HousePermissions.can_decorate(
-		HouseLayout.from_dict(house), NetClient.player_id
-	)
-	var rmin = house.get("room_min", [0, 0])
-	var rmax = house.get("room_max", [11, 11])
-	if typeof(rmin) == TYPE_ARRAY and rmin.size() >= 2:
-		placement.room_min = Vector2i(int(rmin[0]), int(rmin[1]))
-	if typeof(rmax) == TYPE_ARRAY and rmax.size() >= 2:
-		placement.room_max = Vector2i(int(rmax[0]), int(rmax[1]))
+	var layout := HouseLayout.from_dict(house)
+	placement.can_decorate = HousePermissions.can_decorate(layout, NetClient.player_id)
+	_apply_layout_geometry(layout)
 	_rebuild_furniture(house.get("furniture", []))
 	var players: Array = state.get("players", [])
 	var seen := {}
@@ -166,9 +164,67 @@ func _on_house_state(state: Dictionary) -> void:
 			_remotes[pid].queue_free()
 			_remotes.erase(pid)
 	var spawn: Dictionary = state.get("spawn", {})
+	var size_changed := bool(state.get("size_changed", false))
 	if not spawn.is_empty() and OS.get_environment("COZY_E2E_ROLE") == "":
-		player.global_position = Vector3(float(spawn.get("x", 6)), float(spawn.get("y", 0.1)), float(spawn.get("z", 6)))
-	GameState.toast("Welcome to " + str(house.get("display_name", "house")))
+		var spawn_pos := Vector3(float(spawn.get("x", 6)), float(spawn.get("y", 0.1)), float(spawn.get("z", 6)))
+		if size_changed:
+			# Keep players inside the new footprint; pull back to spawn if outside.
+			var max_xz := space.room_size_meters() + 0.5
+			if player.global_position.x < -0.5 or player.global_position.x > max_xz \
+				or player.global_position.z < -0.5 or player.global_position.z > max_xz:
+				player.global_position = spawn_pos
+		else:
+			player.global_position = spawn_pos
+	if size_changed:
+		GameState.toast("House is now " + HouseLayout.label_for_tier(layout.size_tier))
+	else:
+		GameState.toast("Welcome to " + str(house.get("display_name", "house")))
+
+
+func _apply_layout_geometry(layout: HouseLayout) -> void:
+	space.apply_room_bounds(layout.room_min, layout.room_max)
+	placement.grid_origin = space.grid_origin
+	placement.room_min = layout.room_min
+	placement.room_max = layout.room_max
+
+
+func apply_house_size_local(tier: String) -> void:
+	## Offline demo path — same validation rules as the server.
+	var layout: HouseLayout
+	if not NetClient.current_house.is_empty():
+		layout = HouseLayout.from_dict(NetClient.current_house)
+	else:
+		layout = HouseLayout.new()
+		layout.apply_size_tier(HouseLayout.tier_for_room_max(space.room_max), true)
+		layout.furniture = _furniture_instance_list()
+	var reason := layout.can_apply_size_tier(tier)
+	if reason != "":
+		GameState.toast(reason)
+		return
+	layout.apply_size_tier(tier, true)
+	if not NetClient.current_house.is_empty():
+		NetClient.current_house = layout.to_dict()
+	_apply_layout_geometry(layout)
+	_rebuild_furniture(layout.furniture)
+	player.global_position = space.spawn_position()
+	ui.refresh_size_chip(layout.size_tier)
+	GameState.toast("House is now " + HouseLayout.label_for_tier(layout.size_tier))
+
+
+func _furniture_instance_list() -> Array:
+	var out: Array = []
+	for iid in _furniture.keys():
+		var vis: FurnitureVisual = _furniture[iid]
+		if vis == null:
+			continue
+		out.append({
+			"instance_id": vis.instance_id,
+			"def_id": vis.def_id,
+			"cell_x": vis.cell.x,
+			"cell_z": vis.cell.y,
+			"rotation": vis.rotation_deg,
+		})
+	return out
 
 
 func _rebuild_furniture(list: Array) -> void:
@@ -432,10 +488,11 @@ func _run_shot_harness() -> void:
 				while NetClient.revision <= before_rev and Time.get_ticks_msec() - wait_t < 3000:
 					await get_tree().process_frame
 			await get_tree().create_timer(0.3).timeout
-		player.global_position = Vector3(6.0, 0.1, 9.4)
+		player.global_position = space.spawn_position()
 		player.yaw = 0.1
 		player.pitch = deg_to_rad(-14)
-		player.model_root.rotation.y = PI
+		# Face away from the camera (travel −Z relative to default look).
+		player.face_direction(Vector3(0, 0, -1))
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await _shot(out_dir.path_join("01_character_controller.png"))

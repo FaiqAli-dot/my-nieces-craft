@@ -45,6 +45,11 @@ static func can_manage_invite(house: HouseLayout, player_id: String) -> bool:
 	return house != null and player_id == house.owner_id
 
 
+static func can_set_house_size(house: HouseLayout, player_id: String) -> bool:
+	## Expanding / shrinking the room is owner-only (not collaborators).
+	return house != null and player_id == house.owner_id
+
+
 static func role_name(role: int) -> String:
 	match role:
 		Role.OWNER:
