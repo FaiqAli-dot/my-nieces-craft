@@ -96,8 +96,11 @@ func _make_world() -> VoxelWorld:
 func _test_world_serialize() -> void:
 	var world := _make_world()
 	await get_tree().process_frame
+	# Meadow dressing may place path/flower/dirt accents; surface must still be solid ground.
 	var before := world.get_block(10, VoxelWorld.GROUND_Y, 10)
-	_assert(before == BlockDB.get_id("grass"), "generated grass surface")
+	_assert(before != 0 and BlockDB.is_solid(before), "generated ground surface")
+	var grass_probe := world.get_block(12, VoxelWorld.GROUND_Y, 15)
+	_assert(grass_probe == BlockDB.get_id("grass") or grass_probe != 0, "meadow has terrain blocks")
 	world.set_block(10, VoxelWorld.GROUND_Y + 1, 10, BlockDB.get_id("wood"), true)
 	_assert(world.get_block(10, VoxelWorld.GROUND_Y + 1, 10) == BlockDB.get_id("wood"), "placed wood")
 	var data := world.serialize()

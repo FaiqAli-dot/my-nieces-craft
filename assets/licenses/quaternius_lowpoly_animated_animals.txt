@@ -1,0 +1,11 @@
+Quaternius — LowPoly Animated Animals
+Source: https://quaternius.itch.io/lowpoly-animated-animals
+Author: Quaternius
+License: CC0 (as stated on Quaternius / itch.io free pack listings — verify on page)
+Downloaded: 2026-10-09 via official itch.io download_url claim (not Google Drive)
+Included in project (representative sample):
+  assets/models/animals/quaternius/Cow.fbx
+  assets/models/animals/quaternius/Pig.fbx
+  assets/models/animals/quaternius/Sheep.fbx
+  assets/models/animals/quaternius/Pug.fbx
+Rejected from pack for cohesion/count: Horse, Llama, Zebra (and blends/obj duplicates)

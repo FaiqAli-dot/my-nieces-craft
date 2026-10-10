@@ -1,132 +1,140 @@
 extends Node3D
 class_name AssetShowcase
-## Dedicated labeled asset showcase adjacent to the build area.
+## Curated garden playground — not a floating-label museum.
 
-const SECTION_SPACING := 8.0
+const GARDEN_ORIGIN := Vector3(48, 0, 12)
 
 var _anim_players: Array[AnimationPlayer] = []
 
 func _ready() -> void:
-	_build_showcase()
+	position = Vector3(GARDEN_ORIGIN.x, VoxelWorld.GROUND_Y + 1, GARDEN_ORIGIN.z)
+	_build_garden()
 
 
-func _build_showcase() -> void:
-	# Place showcase east of spawn / build area
-	position = Vector3(48, VoxelWorld.GROUND_Y + 1, 8)
-	_add_sign(Vector3(0, 2.5, -2), "ASSET SHOWCASE")
-
-	var sections := [
-		{"title": "Environment & Vegetation", "source": "Kenney Nature Kit / Mini Forest", "builder": "_section_environment"},
-		{"title": "Animals", "source": "Khronos Fox/Duck + Kenney Bear", "builder": "_section_animals"},
-		{"title": "Furniture & Props", "source": "Kenney Furniture Kit", "builder": "_section_furniture"},
-		{"title": "Materials & Textures", "source": "Poly Haven + Kenney Prototype", "builder": "_section_materials"},
-		{"title": "Other Useful Assets", "source": "Kenney Characters / Audio / UI", "builder": "_section_other"},
-	]
-	for i in sections.size():
-		var origin := Vector3(0, 0, i * SECTION_SPACING)
-		_add_platform(origin)
-		_add_sign(origin + Vector3(0, 2.2, -2.2), sections[i]["title"])
-		_add_label(origin + Vector3(0, 1.8, -2.2), str(sections[i]["source"]))
-		call(sections[i]["builder"], origin + Vector3(0, 0.05, 0))
+func _build_garden() -> void:
+	_add_ground_plaque(Vector3(0, 0.02, -4), "Cozy Garden", Color(0.45, 0.7, 0.45))
+	_build_animal_pen(Vector3(0, 0, 0))
+	_build_flower_nook(Vector3(-6, 0, 6))
+	_build_sitting_corner(Vector3(6, 0, 6))
+	_build_block_palette(Vector3(0, 0, 12))
 
 
-func _add_platform(origin: Vector3) -> void:
-	var mesh_i := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(10, 0.2, 5)
-	mesh_i.mesh = box
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.92, 0.88, 0.78)
-	mesh_i.material_override = mat
-	mesh_i.position = origin + Vector3(0, -0.1, 0)
-	add_child(mesh_i)
-	var body := StaticBody3D.new()
-	body.position = mesh_i.position
-	var col := CollisionShape3D.new()
-	var shape := BoxShape3D.new()
-	shape.size = box.size
-	col.shape = shape
-	body.add_child(col)
-	add_child(body)
+func _animal_tex(kind: String) -> Texture2D:
+	var path := ""
+	match kind:
+		"cow":
+			path = "res://assets/textures/animals/cow_spots.png"
+		"sheep":
+			path = "res://assets/textures/animals/sheep_wool.png"
+		"pig":
+			path = "res://assets/textures/animals/pig_pink.png"
+		"pug":
+			path = "res://assets/textures/animals/pug_brown.png"
+	if path != "" and ResourceLoader.exists(path):
+		return load(path) as Texture2D
+	return null
 
 
-func _add_sign(pos: Vector3, text: String) -> void:
-	var label := Label3D.new()
-	label.text = text
-	label.font_size = 36
-	label.pixel_size = 0.01
-	label.modulate = Color(0.15, 0.25, 0.45)
-	label.position = pos
-	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.outline_size = 8
-	add_child(label)
-
-
-func _add_label(pos: Vector3, text: String) -> void:
-	var label := Label3D.new()
-	label.text = text
-	label.font_size = 20
-	label.pixel_size = 0.01
-	label.modulate = Color(0.25, 0.35, 0.5)
-	label.position = pos
-	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.outline_size = 6
-	add_child(label)
-
-
-func _spawn_model(path: String, origin: Vector3, scale_factor: float = 1.0, y_offset: float = 0.0) -> Node3D:
-	if not ResourceLoader.exists(path):
-		var missing := Label3D.new()
-		missing.text = "Missing:\n" + path.get_file()
-		missing.font_size = 18
-		missing.position = origin + Vector3(0, 0.5, 0)
-		add_child(missing)
-		return missing
-	var scene: PackedScene = load(path)
-	var node := scene.instantiate() as Node3D
-	node.position = origin + Vector3(0, y_offset, 0)
-	node.scale = Vector3.ONE * scale_factor
-	add_child(node)
-	_fix_kenney_materials(node)
-	# Try to play idle / first animation if present
-	var ap := _find_anim(node)
-	if ap:
-		_anim_players.append(ap)
-		var anims := ap.get_animation_list()
-		if anims.size() > 0:
-			var preferred := ""
-			for a in anims:
-				if String(a).to_lower().find("idle") >= 0 or String(a).to_lower().find("survey") >= 0:
-					preferred = a
-					break
-			ap.play(preferred if preferred != "" else anims[0])
-	return node
-
-
-func _fix_kenney_materials(node: Node) -> void:
-	# Kenney GLBs often import with metallicFactor=1, which washes out under daylight.
-	if node is GeometryInstance3D:
-		var gi := node as GeometryInstance3D
-		if gi is MeshInstance3D:
-			var mi := gi as MeshInstance3D
-			if mi.mesh != null:
-				for si in mi.mesh.get_surface_count():
-					var mat: Material = mi.get_active_material(si)
-					if mat == null:
-						mat = mi.mesh.surface_get_material(si)
-					var sm := StandardMaterial3D.new()
-					if mat is StandardMaterial3D:
-						var src := mat as StandardMaterial3D
-						sm.albedo_color = src.albedo_color
-						sm.albedo_texture = src.albedo_texture
-						sm.cull_mode = src.cull_mode
-					else:
-						sm.albedo_color = Color(0.45, 0.75, 0.4)
-					sm.metallic = 0.0
-					sm.roughness = 0.85
-					mi.set_surface_override_material(si, sm)
+func _paint_animal(node: Node, kind: String) -> void:
+	var color := Color(0.9, 0.85, 0.7)
+	match kind:
+		"cow":
+			color = Color(0.96, 0.90, 0.78)
+		"sheep":
+			color = Color(0.98, 0.98, 1.0)
+		"pig":
+			color = Color(1.0, 0.68, 0.74)
+		"pug":
+			color = Color(0.62, 0.40, 0.28)
+		"bear":
+			color = Color(0.66, 0.44, 0.28)
+		"chair", "table", "plant":
+			color = Color(0.78, 0.56, 0.34)
+	var tex := _animal_tex(kind)
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			for si in mi.mesh.get_surface_count():
+				var sm := StandardMaterial3D.new()
+				sm.albedo_color = color
+				if tex:
+					sm.albedo_texture = tex
+					sm.uv1_scale = Vector3(2.0, 2.0, 2.0)
+				# Multi-surface FBX: darker accents on later surfaces
+				if kind == "cow" and si > 0:
+					sm.albedo_color = Color(0.28, 0.22, 0.18)
+					sm.albedo_texture = null
+				if kind == "sheep" and si > 0:
+					sm.albedo_color = Color(0.25, 0.25, 0.28)
+					sm.albedo_texture = null
+				if kind == "pig" and si > 0:
+					sm.albedo_color = Color(0.95, 0.55, 0.62)
+				if kind == "pug" and si > 0:
+					sm.albedo_color = Color(0.35, 0.25, 0.2)
+					sm.albedo_texture = null
+				sm.metallic = 0.0
+				sm.roughness = 0.88
+				sm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+				mi.set_surface_override_material(si, sm)
 	for c in node.get_children():
-		_fix_kenney_materials(c)
+		_paint_animal(c, kind)
+
+
+func _spawn(path: String, origin: Vector3, scale_factor: float = 1.0, yaw: float = 0.0) -> Node3D:
+	if not ResourceLoader.exists(path):
+		return null
+	var node: Node3D = load(path).instantiate()
+	node.scale = Vector3.ONE * scale_factor
+	node.rotation_degrees.y = yaw
+	var fn := path.get_file().to_lower()
+	var kind := "prop"
+	if fn.find("cow") >= 0: kind = "cow"
+	elif fn.find("sheep") >= 0: kind = "sheep"
+	elif fn.find("pig") >= 0: kind = "pig"
+	elif fn.find("pug") >= 0: kind = "pug"
+	elif fn.find("bear") >= 0: kind = "bear"
+	elif fn.find("chair") >= 0: kind = "chair"
+	elif fn.find("table") >= 0: kind = "table"
+	elif fn.find("plant") >= 0: kind = "plant"
+	_paint_animal(node, kind)
+	# Flowers / nature in garden nook
+	if fn.find("flower") >= 0 or fn.find("grass") >= 0 or fn.find("mushroom") >= 0 or fn.find("bush") >= 0:
+		_paint_nature(node, fn)
+
+	var ap := _find_anim(node)
+	var host := Node3D.new()
+	# Prefer gentle bob — some FBX clips leave animals lying down / unreadable
+	host.set_script(load("res://scripts/showcase/bobbing_animal.gd"))
+	host.position = origin
+	add_child(host)
+	host.add_child(node)
+	if ap:
+		ap.active = false
+		_anim_players.append(ap)
+	return host
+
+
+func _paint_nature(node: Node, fn: String) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			for si in mi.mesh.get_surface_count():
+				var sm := StandardMaterial3D.new()
+				sm.metallic = 0.0
+				sm.roughness = 0.92
+				if fn.find("yellow") >= 0:
+					sm.albedo_color = Color(0.95, 0.8, 0.25)
+				elif fn.find("purple") >= 0:
+					sm.albedo_color = Color(0.7, 0.4, 0.85)
+				elif fn.find("mushroom") >= 0:
+					sm.albedo_color = Color(0.85, 0.25, 0.28) if si == 0 else Color(0.9, 0.85, 0.7)
+				elif fn.find("flower") >= 0:
+					sm.albedo_color = Color(0.92, 0.35, 0.55) if si == 0 else Color(0.3, 0.65, 0.35)
+				else:
+					sm.albedo_color = Color(0.32, 0.72, 0.38)
+				mi.set_surface_override_material(si, sm)
+	for c in node.get_children():
+		_paint_nature(c, fn)
 
 
 func _find_anim(node: Node) -> AnimationPlayer:
@@ -139,79 +147,132 @@ func _find_anim(node: Node) -> AnimationPlayer:
 	return null
 
 
-func _section_environment(origin: Vector3) -> void:
-	var items := [
-		["res://assets/models/nature/tree_oak.glb", 0.7],
-		["res://assets/models/nature/tree_pineDefaultA.glb", 0.7],
-		["res://assets/models/nature/rock_largeA.glb", 0.8],
-		["res://assets/models/nature/flower_redA.glb", 1.2],
-		["res://assets/models/nature/grass_large.glb", 1.0],
-		["res://assets/models/props/tree.glb", 1.0],
-		["res://assets/models/props/plant.glb", 1.0],
-	]
-	for i in items.size():
-		var x := -3.5 + i * 1.2
-		_spawn_model(items[i][0], origin + Vector3(x, 0, 0), items[i][1])
-		_add_label(origin + Vector3(x, 1.4, 1.5), items[i][0].get_file() + "\nKenney")
+func _add_ground_plaque(pos: Vector3, text: String, color: Color) -> void:
+	var base := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(2.4, 0.12, 0.9)
+	base.mesh = box
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.85
+	base.material_override = mat
+	base.position = pos
+	add_child(base)
+	var label := Label3D.new()
+	label.text = text
+	label.font_size = 28
+	label.pixel_size = 0.008
+	label.position = pos + Vector3(0, 0.2, 0)
+	label.modulate = Color(0.2, 0.25, 0.2)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	add_child(label)
 
 
-func _section_animals(origin: Vector3) -> void:
-	# Fox has animation; Duck is static; Bear is stuffed toy from furniture kit
-	_spawn_model("res://assets/models/animals/Fox.glb", origin + Vector3(-2.5, 0, 0), 0.025)
-	_add_label(origin + Vector3(-2.5, 1.5, 1.4), "Fox.glb\nKhronos Sample (animated)")
-	_spawn_model("res://assets/models/animals/Duck.glb", origin + Vector3(0, 0, 0), 0.8)
-	_add_label(origin + Vector3(0, 1.5, 1.4), "Duck.glb\nKhronos Sample")
-	_spawn_model("res://assets/models/furniture/bear.glb", origin + Vector3(2.5, 0, 0), 1.5)
-	_add_label(origin + Vector3(2.5, 1.5, 1.4), "bear.glb\nKenney Furniture Kit")
-	# Note label about Quaternius
-	_add_label(origin + Vector3(0, 2.4, 0), "Quaternius animals: Drive rate-limited (see ASSET_MANIFEST)")
-
-
-func _section_furniture(origin: Vector3) -> void:
-	var items := [
-		"res://assets/models/furniture/chair.glb",
-		"res://assets/models/furniture/table.glb",
-		"res://assets/models/furniture/bedSingle.glb",
-		"res://assets/models/furniture/desk.glb",
-		"res://assets/models/furniture/lampRoundTable.glb",
-		"res://assets/models/furniture/bookcaseOpen.glb",
-	]
-	for i in items.size():
-		var x := -3.0 + i * 1.2
-		_spawn_model(items[i], origin + Vector3(x, 0, 0), 1.0)
-		_add_label(origin + Vector3(x, 1.3, 1.4), items[i].get_file() + "\nKenney Furniture")
-
-
-func _section_materials(origin: Vector3) -> void:
-	var mats := [
-		["res://assets/textures/polyhaven/grass_path_2/grass_path_2_diff_1k.jpg", "Poly Haven grass_path_2"],
-		["res://assets/textures/polyhaven/brown_mud_03/brown_mud_03_diff_1k.jpg", "Poly Haven brown_mud_03"],
-		["res://assets/textures/polyhaven/rock_face_03/rock_face_03_diff_1k.jpg", "Poly Haven rock_face_03"],
-		["res://assets/textures/polyhaven/wood_table_001/wood_table_001_diff_1k.jpg", "Poly Haven wood_table_001"],
-		["res://assets/textures/polyhaven/sandy_gravel_02/sandy_gravel_02_diff_1k.jpg", "Poly Haven sandy_gravel_02"],
-		["res://assets/textures/prototype/Green/texture_01.png", "Kenney Prototype Green"],
-		["res://assets/textures/blocks/wool_pink.png", "CozyBlocks wool_pink"],
-	]
-	for i in mats.size():
-		var x := -3.6 + i * 1.2
+func _fence_rect(center: Vector3, half_w: float, half_d: float) -> void:
+	# Toy fence: posts + rails so the pen reads clearly
+	var posts: Array[Vector3] = []
+	for i in 6:
+		var t := float(i) / 5.0
+		posts.append(center + Vector3(lerpf(-half_w, half_w, t), 0, -half_d))
+		posts.append(center + Vector3(lerpf(-half_w, half_w, t), 0, half_d))
+		posts.append(center + Vector3(-half_w, 0, lerpf(-half_d, half_d, t)))
+		posts.append(center + Vector3(half_w, 0, lerpf(-half_d, half_d, t)))
+	for p in posts:
 		var mi := MeshInstance3D.new()
 		var box := BoxMesh.new()
-		box.size = Vector3(0.9, 0.9, 0.9)
+		box.size = Vector3(0.16, 1.1, 0.16)
 		mi.mesh = box
 		var mat := StandardMaterial3D.new()
-		if ResourceLoader.exists(mats[i][0]):
-			mat.albedo_texture = load(mats[i][0])
-		mat.roughness = 0.85
+		mat.albedo_color = Color(0.62, 0.40, 0.20)
+		mat.roughness = 0.9
 		mi.material_override = mat
-		mi.position = origin + Vector3(x, 0.45, 0)
+		mi.position = p + Vector3(0, 0.55, 0)
 		add_child(mi)
-		_add_label(origin + Vector3(x, 1.3, 1.4), mats[i][1])
+	# Horizontal rails
+	for rail_y in [0.35, 0.75]:
+		for seg in [
+			[Vector3(0, rail_y, -half_d), Vector3(half_w * 2, 0.08, 0.1)],
+			[Vector3(0, rail_y, half_d), Vector3(half_w * 2, 0.08, 0.1)],
+			[Vector3(-half_w, rail_y, 0), Vector3(0.1, 0.08, half_d * 2)],
+			[Vector3(half_w, rail_y, 0), Vector3(0.1, 0.08, half_d * 2)],
+		]:
+			var mi := MeshInstance3D.new()
+			var box := BoxMesh.new()
+			box.size = seg[1]
+			mi.mesh = box
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = Color(0.72, 0.50, 0.28)
+			mat.roughness = 0.9
+			mi.material_override = mat
+			mi.position = center + seg[0]
+			add_child(mi)
 
 
-func _section_other(origin: Vector3) -> void:
-	_spawn_model("res://assets/models/characters/character-a.glb", origin + Vector3(-2.5, 0, 0), 1.0)
-	_add_label(origin + Vector3(-2.5, 1.6, 1.4), "character-a\nKenney Blocky Characters")
-	_spawn_model("res://assets/models/characters/character-female-a.glb", origin + Vector3(-0.5, 0, 0), 1.0)
-	_add_label(origin + Vector3(-0.5, 1.6, 1.4), "character-female-a\nKenney Mini Characters")
-	# Audio / UI note cards
-	_add_label(origin + Vector3(2.0, 1.0, 0), "Audio: Kenney Impact / Interface / RPG\nUI: Kenney Input Prompts + RPG UI\nSky: Poly Haven HDRI + Kenney skyboxes")
+func _build_animal_pen(origin: Vector3) -> void:
+	_add_ground_plaque(origin + Vector3(0, 0.02, -4.2), "Friends", Color(0.95, 0.78, 0.35))
+	_fence_rect(origin, 4.5, 3.5)
+	# Soft solid pad (no busy checkers)
+	var pad := MeshInstance3D.new()
+	var pad_box := BoxMesh.new()
+	pad_box.size = Vector3(8.6, 0.1, 6.6)
+	pad.mesh = pad_box
+	var pad_mat := StandardMaterial3D.new()
+	pad_mat.albedo_color = Color(0.38, 0.62, 0.30)
+	pad_mat.roughness = 0.95
+	pad_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	pad.material_override = pad_mat
+	pad.position = origin + Vector3(0, 0.05, 0)
+	add_child(pad)
+	# Quaternius AABB at scale 1: cow≈5.15 tall, pig≈4.6, pug≈1.05; sheep pivot sits high.
+	# Target: cow ~1.5, sheep ~1.15, pig ~1.0, pug ~0.65 blocks tall.
+	var animals := [
+		["res://assets/models/animals/quaternius/Cow.fbx", Vector3(-2.4, 0.05, 0.2), 0.30, 25.0],
+		["res://assets/models/animals/quaternius/Sheep.fbx", Vector3(1.0, 1.35, -1.4), 0.20, -15.0],
+		["res://assets/models/animals/quaternius/Pig.fbx", Vector3(2.5, 0.05, 0.8), 0.28, 40.0],
+		["res://assets/models/animals/quaternius/Pug.fbx", Vector3(-0.4, 0.05, 2.0), 0.58, -25.0],
+	]
+	for a in animals:
+		_spawn(a[0], origin + a[1], a[2], a[3])
+
+
+func _build_flower_nook(origin: Vector3) -> void:
+	_add_ground_plaque(origin + Vector3(0, 0.02, -2.0), "Flowers", Color(0.85, 0.55, 0.7))
+	var items := [
+		["res://assets/models/nature/flower_redA.glb", 1.4],
+		["res://assets/models/nature/flower_yellowA.glb", 1.4],
+		["res://assets/models/nature/flower_purpleA.glb", 1.4],
+		["res://assets/models/nature/mushroom_red.glb", 1.1],
+		["res://assets/models/nature/grass_large.glb", 1.2],
+		["res://assets/models/nature/plant_bush.glb", 1.0],
+	]
+	for i in items.size():
+		var ang := float(i) / float(items.size()) * TAU
+		var p := origin + Vector3(cos(ang) * 1.4, 0, sin(ang) * 1.4)
+		_spawn(items[i][0], p, items[i][1], rad_to_deg(ang))
+
+
+func _build_sitting_corner(origin: Vector3) -> void:
+	_add_ground_plaque(origin + Vector3(0, 0.02, -2.0), "Cozy Corner", Color(0.7, 0.6, 0.45))
+	_spawn("res://assets/models/furniture/chair.glb", origin + Vector3(-0.8, 0, 0), 1.0, 20.0)
+	_spawn("res://assets/models/furniture/tableCoffee.glb", origin + Vector3(0.4, 0, 0.2), 1.0, 0.0)
+	_spawn("res://assets/models/furniture/plantSmall1.glb", origin + Vector3(1.2, 0, -0.6), 1.1, 0.0)
+	_spawn("res://assets/models/furniture/bear.glb", origin + Vector3(-1.4, 0, 0.8), 1.2, -30.0)
+
+
+func _build_block_palette(origin: Vector3) -> void:
+	_add_ground_plaque(origin + Vector3(0, 0.02, -1.6), "Blocks", Color(0.55, 0.7, 0.9))
+	var names := ["grass", "dirt", "stone", "sand", "wood", "leaves", "glass", "planks", "wool_pink", "wool_yellow"]
+	for i in names.size():
+		var mi := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(0.85, 0.85, 0.85)
+		mi.mesh = box
+		var mat := StandardMaterial3D.new()
+		var tex: Texture2D = BlockDB.icon_texture(names[i])
+		mat.albedo_texture = tex
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		mat.roughness = 0.9
+		mat.metallic = 0.0
+		mi.material_override = mat
+		mi.position = origin + Vector3(-4.0 + i * 0.95, 0.42, 0)
+		add_child(mi)

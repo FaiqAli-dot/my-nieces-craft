@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b8dum7qld72pq"
-path="res://.godot/imported/colormap.png-b5aed20b09058b318ffab234d99d2130.ctex"
+uid="uid://daao4o3fwjr5l"
+path="res://.godot/imported/path_stone.png-7383c41cc6ad09bae629eb903c0fe3e0.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/models/characters/Textures/colormap.png"
-dest_files=["res://.godot/imported/colormap.png-b5aed20b09058b318ffab234d99d2130.ctex"]
+source_file="res://assets/textures/blocks/path_stone.png"
+dest_files=["res://.godot/imported/path_stone.png-7383c41cc6ad09bae629eb903c0fe3e0.ctex"]
 
 [params]
 

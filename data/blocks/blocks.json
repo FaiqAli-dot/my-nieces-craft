@@ -15,5 +15,6 @@
   "wool_yellow": {"id": 13, "display_name": "Yellow Wool", "solid": true, "breakable": true, "transparent": false, "drop": "wool_yellow", "textures": {"all": "wool_yellow.png"}},
   "wool_pink": {"id": 14, "display_name": "Pink Wool", "solid": true, "breakable": true, "transparent": false, "drop": "wool_pink", "textures": {"all": "wool_pink.png"}},
   "wool_green": {"id": 15, "display_name": "Green Wool", "solid": true, "breakable": true, "transparent": false, "drop": "wool_green", "textures": {"all": "wool_green.png"}},
-  "flower_block": {"id": 16, "display_name": "Flower Block", "solid": true, "breakable": true, "transparent": false, "drop": "flower_block", "textures": {"all": "flower_block.png"}}
+  "flower_block": {"id": 16, "display_name": "Flower Block", "solid": true, "breakable": true, "transparent": false, "drop": "flower_block", "textures": {"all": "flower_block.png"}},
+  "path_stone": {"id": 17, "display_name": "Path Stone", "solid": true, "breakable": true, "transparent": false, "drop": "path_stone", "textures": {"all": "path_stone.png"}}
 }
