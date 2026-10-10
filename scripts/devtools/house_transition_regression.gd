@@ -6,15 +6,20 @@ const CYCLES := 10
 
 
 func _ready() -> void:
-	# Survive house→meadow scene swaps. Capture the tree before remove_child
-	# (detach clears get_tree() until reparented).
+	# Defer reparent: parent may still be busy setting up children during _ready.
+	call_deferred("_reparent_and_start")
+
+
+func _reparent_and_start() -> void:
 	var tree := get_tree()
-	if tree and get_parent() != tree.root:
-		var keep := self
-		get_parent().remove_child(keep)
-		tree.root.add_child(keep)
-		keep.call_deferred("_start")
+	if tree == null:
+		push_error("TRANSITION FAIL: no scene tree")
 		return
+	if get_parent() != tree.root:
+		var parent := get_parent()
+		if parent:
+			parent.remove_child(self)
+		tree.root.add_child(self)
 	await _start()
 
 
@@ -51,12 +56,9 @@ func _run() -> void:
 		if NetClient.connection_status() in ["connecting", "closing"]:
 			failures += 1
 			print("TRANSITION FAIL cycle %d net=%s on meadow" % [i + 1, NetClient.connection_status()])
-		# Stuck reconnect toast path should be idle after intentional leave.
-		if NetClient.connection_status() != "idle" and NetClient.connection_status() != "offline":
-			# connected would be wrong on meadow
-			if NetClient.connection_status() == "connected":
-				failures += 1
-				print("TRANSITION FAIL cycle %d still connected on meadow" % [i + 1])
+		if NetClient.connection_status() == "connected":
+			failures += 1
+			print("TRANSITION FAIL cycle %d still connected on meadow" % [i + 1])
 		var meadow := get_tree().current_scene
 		SceneFlow.go_to_house(meadow.get_node_or_null("Player") if meadow else null)
 		if not await _wait_scene("house.tscn"):
