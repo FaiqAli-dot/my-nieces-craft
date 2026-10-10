@@ -27,12 +27,13 @@ func _spawn() -> void:
 		character_scene = "res://assets/models/characters/character-b.glb"
 	if ResourceLoader.exists(character_scene):
 		_model = load(character_scene).instantiate()
+		_model.scale = Vector3.ONE * 0.62
 		add_child(_model)
 		_anim = _find_anim(_model)
 	_label = Label3D.new()
 	_label.text = display_name
-	_label.position = Vector3(0, 2.1, 0)
-	_label.font_size = 32
+	_label.position = Vector3(0, 1.9, 0)
+	_label.font_size = 28
 	_label.modulate = Color("FFF6E8")
 	_label.outline_modulate = Color("3E4A3C")
 	_label.outline_size = 8

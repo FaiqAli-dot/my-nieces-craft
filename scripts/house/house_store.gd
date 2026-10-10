@@ -97,8 +97,30 @@ func ensure_house_for_owner(owner_id: String, display_name: String = "") -> Hous
 
 
 func rotate_invite(house: HouseLayout) -> void:
+	var old := house.invite_code
+	if old != "":
+		var old_path := _invite_path(old)
+		if FileAccess.file_exists(old_path):
+			DirAccess.remove_absolute(old_path)
 	house.invite_code = _new_invite_code()
+	house.invite_revoked = false
+	house.invite_expires_at = 0
 	save_house(house)
+
+
+func revoke_invite(house: HouseLayout) -> void:
+	house.invite_revoked = true
+	if house.invite_code != "":
+		var path := _invite_path(house.invite_code)
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(path)
+	save_house(house)
+
+
+func clear_invite_index(code: String) -> void:
+	var path := _invite_path(code)
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
 
 
 func _new_id(prefix: String) -> String:

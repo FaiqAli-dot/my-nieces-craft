@@ -36,6 +36,14 @@ func _ready() -> void:
 		NetClient.connect_to_server()
 	else:
 		ui.set_status("Offline demo (server not started)")
+	if OS.get_environment("COZY_E2E_ROLE") != "":
+		var e2e := Node.new()
+		e2e.set_script(load("res://scripts/devtools/e2e_client_driver.gd"))
+		add_child(e2e)
+	if OS.get_environment("COZY_HOUSE_TOUCH_TEST") == "1":
+		var touch_test := Node.new()
+		touch_test.set_script(load("res://scripts/devtools/house_touch_regression.gd"))
+		add_child(touch_test)
 	if OS.get_environment("COZY_SCREENSHOTS") == "1":
 		await get_tree().create_timer(1.2).timeout
 		await _run_shot_harness()
@@ -55,7 +63,7 @@ func _connect_net_signals() -> void:
 	NetClient.invite.connect(_on_invite)
 	NetClient.left_house.connect(_on_left)
 	NetClient.server_error.connect(_on_err)
-	NetClient.connected.connect(func(): ui.set_status("Connected — entering house…"))
+	NetClient.connected.connect(func(): ui.set_status("Connected"))
 	NetClient.disconnected.connect(func(): ui.set_status("Disconnected"))
 
 
@@ -64,7 +72,7 @@ func _on_welcomed(_info: Dictionary) -> void:
 	var invite := OS.get_environment("COZY_JOIN_INVITE")
 	if invite != "":
 		NetClient.join_invite(invite)
-	else:
+	elif OS.get_environment("COZY_E2E_ROLE") != "bob":
 		NetClient.enter_own_house()
 
 
@@ -74,16 +82,13 @@ func _on_house_state(state: Dictionary) -> void:
 	placement.can_decorate = HousePermissions.can_decorate(
 		HouseLayout.from_dict(house), NetClient.player_id
 	)
-	placement.room_min = Vector2i(
-		int((house.get("room_min", [0, 0]) as Array)[0]),
-		int((house.get("room_min", [0, 0]) as Array)[1])
-	)
-	placement.room_max = Vector2i(
-		int((house.get("room_max", [11, 11]) as Array)[0]),
-		int((house.get("room_max", [11, 11]) as Array)[1])
-	)
+	var rmin = house.get("room_min", [0, 0])
+	var rmax = house.get("room_max", [11, 11])
+	if typeof(rmin) == TYPE_ARRAY and rmin.size() >= 2:
+		placement.room_min = Vector2i(int(rmin[0]), int(rmin[1]))
+	if typeof(rmax) == TYPE_ARRAY and rmax.size() >= 2:
+		placement.room_max = Vector2i(int(rmax[0]), int(rmax[1]))
 	_rebuild_furniture(house.get("furniture", []))
-	# Sync remotes from roster
 	var players: Array = state.get("players", [])
 	var seen := {}
 	for p in players:
@@ -97,14 +102,14 @@ func _on_house_state(state: Dictionary) -> void:
 			_remotes[pid].queue_free()
 			_remotes.erase(pid)
 	var spawn: Dictionary = state.get("spawn", {})
-	if not spawn.is_empty():
+	if not spawn.is_empty() and OS.get_environment("COZY_E2E_ROLE") == "":
 		player.global_position = Vector3(float(spawn.get("x", 6)), float(spawn.get("y", 0.1)), float(spawn.get("z", 6)))
 	GameState.toast("Welcome to " + str(house.get("display_name", "house")))
 
 
 func _rebuild_furniture(list: Array) -> void:
 	for c in space.furniture_root.get_children():
-		if c.name == "PlacementPreview":
+		if str(c.name) in ["PlacementPreview", "PlacementGrid"]:
 			continue
 		c.queue_free()
 	_furniture.clear()
@@ -177,9 +182,6 @@ func _on_furn_upsert(info: Dictionary) -> void:
 	var inst: Dictionary = info.get("instance", {})
 	_spawn_furniture(inst)
 	placement.set_instances(_furniture)
-	if placement.mode != PlacementController.Mode.IDLE:
-		# Keep preview; authoritative state updated
-		pass
 
 
 func _on_furn_removed(info: Dictionary) -> void:
@@ -208,7 +210,7 @@ func _on_left() -> void:
 	for pid in _remotes.keys():
 		_remotes[pid].queue_free()
 	_remotes.clear()
-	ui.set_status("Back home — enter your house or join a friend")
+	ui.set_status("Left house")
 
 
 func _on_err(info: Dictionary) -> void:
@@ -318,80 +320,104 @@ func _run_shot_harness() -> void:
 	if out_dir == "":
 		out_dir = "/opt/cursor/artifacts/screenshots/phase2"
 	DirAccess.make_dir_recursive_absolute(out_dir)
-	# Offline visual demo furniture if server absent
-	if NetClient.current_house.is_empty():
-		var demo := [
-			{"instance_id": "demo_chair", "def_id": "chair", "cell_x": 3, "cell_z": 3, "rotation": 0},
-			{"instance_id": "demo_table", "def_id": "table", "cell_x": 5, "cell_z": 5, "rotation": 0},
-			{"instance_id": "demo_bed", "def_id": "bed", "cell_x": 8, "cell_z": 2, "rotation": 90},
-			{"instance_id": "demo_lamp", "def_id": "lamp", "cell_x": 2, "cell_z": 8, "rotation": 0},
-			{"instance_id": "demo_plant", "def_id": "plant", "cell_x": 9, "cell_z": 9, "rotation": 0},
-			{"instance_id": "demo_bookshelf", "def_id": "bookshelf", "cell_x": 1, "cell_z": 6, "rotation": 90},
-		]
-		_rebuild_furniture(demo)
+
+	# Prefer live server state
+	var t0 := Time.get_ticks_msec()
+	while NetClient.current_house.is_empty() and Time.get_ticks_msec() - t0 < 8000:
+		await get_tree().process_frame
+
+	var furnished := [
+		{"instance_id": "demo_chair", "def_id": "chair", "cell_x": 3, "cell_z": 3, "rotation": 0},
+		{"instance_id": "demo_table", "def_id": "table", "cell_x": 5, "cell_z": 5, "rotation": 0},
+		{"instance_id": "demo_bed", "def_id": "bed", "cell_x": 8, "cell_z": 2, "rotation": 0},
+		{"instance_id": "demo_lamp", "def_id": "lamp", "cell_x": 2, "cell_z": 8, "rotation": 0},
+		{"instance_id": "demo_plant", "def_id": "plant", "cell_x": 9, "cell_z": 9, "rotation": 0},
+		{"instance_id": "demo_bookshelf", "def_id": "bookshelf", "cell_x": 1, "cell_z": 6, "rotation": 90},
+		{"instance_id": "demo_sofa", "def_id": "sofa", "cell_x": 4, "cell_z": 8, "rotation": 180},
+		{"instance_id": "demo_bear", "def_id": "bear", "cell_x": 7, "cell_z": 9, "rotation": 0},
+	]
+
+	if not NetClient.current_house.is_empty():
 		placement.can_decorate = true
-		player.global_position = Vector3(6.0, 0.1, 9.5)
-		player.yaw = PI
-		player.pitch = deg_to_rad(-12)
+		# Seed a cozy layout via server if empty
+		if _furniture.is_empty():
+			for inst in furnished:
+				var before_rev := NetClient.revision
+				NetClient.place_furniture(str(inst["def_id"]), Vector2i(int(inst["cell_x"]), int(inst["cell_z"])), int(inst["rotation"]))
+				var wait_t := Time.get_ticks_msec()
+				while NetClient.revision <= before_rev and Time.get_ticks_msec() - wait_t < 3000:
+					await get_tree().process_frame
+			await get_tree().create_timer(0.3).timeout
+		player.global_position = Vector3(6.0, 0.1, 9.4)
+		player.yaw = 0.1
+		player.pitch = deg_to_rad(-14)
 		player.model_root.rotation.y = PI
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await _shot(out_dir.path_join("01_character_controller.png"))
 		ui.open_catalog()
 		await get_tree().process_frame
-		await get_tree().process_frame
 		await _shot(out_dir.path_join("02_furniture_catalog.png"))
 		ui.catalog_panel.visible = false
+		# Pause physics tint for deterministic ghost colors in shots.
+		# Place ghosts in-camera: player at z~9.4 looking roughly +Z/-Z depending on yaw.
+		placement.set_physics_process(false)
 		start_place("sofa")
-		placement._anchor = Vector2i(4, 7)
+		await get_tree().process_frame
+		# Free cell toward room center-front of camera
+		placement._anchor = Vector2i(6, 3)
 		placement._valid = true
 		placement._update_preview_xform()
-		placement._apply_ghost(placement._preview, true)
+		placement._tint(true)
+		await get_tree().process_frame
 		await get_tree().process_frame
 		await _shot(out_dir.path_join("03_placement_valid.png"))
-		placement._anchor = Vector2i(5, 5) # overlaps demo table
+		# Overlap coffee table / rug area for clear red ghost
+		placement._anchor = Vector2i(5, 5)
 		placement._valid = false
 		placement._update_preview_xform()
-		placement._apply_ghost(placement._preview, false)
+		placement._tint(false)
+		await get_tree().process_frame
 		await get_tree().process_frame
 		await _shot(out_dir.path_join("04_placement_invalid.png"))
 		cancel_placement()
-		ui.show_invite("DEMO01")
+		placement.set_physics_process(true)
+		NetClient.request_invite()
+		await get_tree().create_timer(0.4).timeout
 		ui.open_visit_panel()
 		await get_tree().process_frame
 		await _shot(out_dir.path_join("05_house_invite_ui.png"))
 		ui.visit_panel.visible = false
-		# Fake remote friend for visual multiplayer evidence (automated MP test covers real sync).
-		var friend := RemotePlayer.new()
-		friend.setup("pid_friend", "Bob", "res://assets/models/characters/character-female-a.glb")
-		space.players_root.add_child(friend)
-		friend.global_position = Vector3(5.5, 0.1, 4.8)
-		friend.apply_state(Vector3(5.5, 0.1, 4.8), 0.2, false)
-		player.global_position = Vector3(6.2, 0.1, 9.2)
-		# yaw=0: SpringArm sits on +Z and looks toward -Z, framing Bob ahead.
-		player.yaw = 0.15
-		player.pitch = deg_to_rad(-12)
-		player.model_root.rotation.y = PI + 0.15
-		ui.set_status("House of Alice")
-		ui.role_label.text = "Role: Owner"
-		ui.set_collab(true)
-		ui.show_invite("AB12CD")
-		ui.refresh_roster_from([
-			{"display_name": "Alice", "player_id": "a"},
-			{"display_name": "Bob", "player_id": "b"},
-		])
-		await get_tree().process_frame
-		await get_tree().process_frame
-		await _shot(out_dir.path_join("06_two_players.png"))
-		# Simulate collaborative furniture already present
-		_spawn_furniture({"instance_id": "collab_chair", "def_id": "chair", "cell_x": 6, "cell_z": 7, "rotation": 180})
-		await get_tree().process_frame
-		await _shot(out_dir.path_join("07_collaborative_furniture.png"))
-
+		await _shot(out_dir.path_join("07_furnished_layout.png"))
 	else:
+		# Offline fallback only if server unreachable
+		_rebuild_furniture(furnished)
+		placement.can_decorate = true
+		ui.set_status("Offline demo (server not started)")
+		player.global_position = Vector3(6.0, 0.1, 9.4)
+		player.yaw = 0.1
+		player.pitch = deg_to_rad(-14)
 		await _shot(out_dir.path_join("01_character_controller.png"))
 		ui.open_catalog()
 		await _shot(out_dir.path_join("02_furniture_catalog.png"))
+		ui.catalog_panel.visible = false
+		placement.set_physics_process(false)
+		start_place("sofa")
+		placement._anchor = Vector2i(6, 3)
+		placement._valid = true
+		placement._update_preview_xform()
+		placement._tint(true)
+		await _shot(out_dir.path_join("03_placement_valid.png"))
+		placement._anchor = Vector2i(5, 5)
+		placement._valid = false
+		placement._update_preview_xform()
+		placement._tint(false)
+		await _shot(out_dir.path_join("04_placement_invalid.png"))
+		cancel_placement()
+		placement.set_physics_process(true)
+		ui.show_invite("DEMO01")
+		ui.open_visit_panel()
+		await _shot(out_dir.path_join("05_house_invite_ui.png"))
 
 
 func _shot(path: String) -> void:

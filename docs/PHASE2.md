@@ -47,9 +47,9 @@ Phase 1 meadow voxel gameplay remains the default main scene (`scenes/world/main
 
 Any non-interactive full-screen or center `Control` (toast, hint, crosshair) **must** use `MOUSE_FILTER_IGNORE`. The Phase 1.5 crosshair bug (`MOUSE_FILTER_STOP` swallowing captured clicks) is covered by unit + `COZY_PLACE_UI_TEST=1`.
 
-## Voxel face-culling bug (inherited — do not rework here)
+## Voxel face-culling (merged from PR #6)
 
-Phase 1.5 can show voxel blocks with camera-facing faces missing (inside-out look). A separate agent is fixing that on the Phase 1.5 line; Phase 2 **does not rewrite** `voxel_chunk.gd` meshing. When that PR lands, merge/rebase it into `cursor/cozyblocks-phase2`.
+Side-face quads in `VoxelChunk` were wound CCW-from-outside while Godot culls with clockwise front faces. Merged `cursor/fix-face-winding-e5ec` (`c79be849`): side triangles flipped via `face_tri_order(flip=true)`, plus winding unit tests and `face_winding_shots.gd`.
 
 Phase 2 furniture/house meshes use engine `BoxMesh` / Kenney GLBs with explicit `CULL_BACK` on opaque materials. Placement ghosts intentionally use `CULL_DISABLED` so translucent previews stay visible from all angles — that is not the voxel winding issue.
 

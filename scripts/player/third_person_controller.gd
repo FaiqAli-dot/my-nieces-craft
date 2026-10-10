@@ -56,7 +56,8 @@ func _spawn_model() -> void:
 	if not ResourceLoader.exists(character_scene):
 		return
 	_model = load(character_scene).instantiate()
-	_model.scale = Vector3.ONE * 1.0
+	# Kenney Blocky Characters read large; ~0.62 matches ~chair-height furniture.
+	_model.scale = Vector3.ONE * 0.62
 	model_root.add_child(_model)
 	_anim = _find_anim(_model)
 	if _anim:

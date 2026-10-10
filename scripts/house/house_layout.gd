@@ -10,6 +10,8 @@ const DEFAULT_CAPACITY := 8
 var house_id: String = ""
 var owner_id: String = ""
 var invite_code: String = ""
+var invite_revoked: bool = false
+var invite_expires_at: int = 0 ## unix seconds; 0 = no expiry
 var collaboration_enabled: bool = false
 var furniture: Array = [] # Array[Dictionary]
 var revision: int = 0
@@ -27,6 +29,8 @@ func to_dict() -> Dictionary:
 		"house_id": house_id,
 		"owner_id": owner_id,
 		"invite_code": invite_code,
+		"invite_revoked": invite_revoked,
+		"invite_expires_at": invite_expires_at,
 		"collaboration_enabled": collaboration_enabled,
 		"furniture": furniture.duplicate(true),
 		"revision": revision,
@@ -39,6 +43,16 @@ func to_dict() -> Dictionary:
 	}
 
 
+func invite_is_valid(now_unix: int = -1) -> bool:
+	if invite_code == "" or invite_revoked:
+		return false
+	if invite_expires_at > 0:
+		var now := now_unix if now_unix >= 0 else int(Time.get_unix_time_from_system())
+		if now >= invite_expires_at:
+			return false
+	return true
+
+
 static func from_dict(data: Dictionary) -> HouseLayout:
 	var h := HouseLayout.new()
 	if data.is_empty():
@@ -46,6 +60,8 @@ static func from_dict(data: Dictionary) -> HouseLayout:
 	h.house_id = str(data.get("house_id", ""))
 	h.owner_id = str(data.get("owner_id", ""))
 	h.invite_code = str(data.get("invite_code", ""))
+	h.invite_revoked = bool(data.get("invite_revoked", false))
+	h.invite_expires_at = int(data.get("invite_expires_at", 0))
 	h.collaboration_enabled = bool(data.get("collaboration_enabled", false))
 	h.furniture = data.get("furniture", [])
 	if typeof(h.furniture) != TYPE_ARRAY:

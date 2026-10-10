@@ -16,6 +16,9 @@ const C_FURN_ROTATE := "furn_rotate"
 const C_FURN_REMOVE := "furn_remove"
 const C_SET_COLLAB := "set_collab"
 const C_REQUEST_INVITE := "request_invite"
+const C_REVOKE_INVITE := "revoke_invite"
+const C_ROTATE_INVITE := "rotate_invite"
+const C_SET_OWNER := "set_owner" ## always rejected — ownership is server-bound
 const C_PING := "ping"
 
 # Server → client

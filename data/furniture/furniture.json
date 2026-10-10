@@ -5,7 +5,7 @@
     "scene": "res://assets/models/furniture/chair.glb",
     "footprint": [1, 1],
     "rotation_increments_deg": 90,
-    "scale": 1.0,
+    "scale": 2.35,
     "y_offset": 0.0,
     "paint": "wood"
   },
@@ -15,9 +15,9 @@
     "scene": "res://assets/models/furniture/chairCushion.glb",
     "footprint": [1, 1],
     "rotation_increments_deg": 90,
-    "scale": 1.15,
+    "scale": 2.45,
     "y_offset": 0.0,
-    "paint": "wood"
+    "paint": "soft"
   },
   "table": {
     "display_name": "Table",
@@ -25,7 +25,7 @@
     "scene": "res://assets/models/furniture/table.glb",
     "footprint": [2, 2],
     "rotation_increments_deg": 90,
-    "scale": 1.0,
+    "scale": 2.1,
     "y_offset": 0.0,
     "paint": "wood"
   },
@@ -35,7 +35,7 @@
     "scene": "res://assets/models/furniture/tableCoffee.glb",
     "footprint": [2, 1],
     "rotation_increments_deg": 90,
-    "scale": 1.0,
+    "scale": 2.2,
     "y_offset": 0.0,
     "paint": "wood"
   },
@@ -43,9 +43,9 @@
     "display_name": "Bed",
     "category": "bedroom",
     "scene": "res://assets/models/furniture/bedSingle.glb",
-    "footprint": [2, 1],
+    "footprint": [2, 2],
     "rotation_increments_deg": 90,
-    "scale": 1.0,
+    "scale": 1.55,
     "y_offset": 0.0,
     "paint": "soft"
   },
@@ -55,7 +55,7 @@
     "scene": "res://assets/models/furniture/bookcaseOpen.glb",
     "footprint": [1, 1],
     "rotation_increments_deg": 90,
-    "scale": 1.0,
+    "scale": 1.85,
     "y_offset": 0.0,
     "paint": "wood"
   },
@@ -65,7 +65,7 @@
     "scene": "res://assets/models/furniture/kitchenFridge.glb",
     "footprint": [1, 1],
     "rotation_increments_deg": 90,
-    "scale": 1.0,
+    "scale": 1.75,
     "y_offset": 0.0,
     "paint": "cool"
   },
@@ -75,7 +75,7 @@
     "scene": "res://assets/models/furniture/desk.glb",
     "footprint": [2, 1],
     "rotation_increments_deg": 90,
-    "scale": 1.0,
+    "scale": 2.0,
     "y_offset": 0.0,
     "paint": "wood"
   },
@@ -85,7 +85,7 @@
     "scene": "res://assets/models/furniture/lampRoundTable.glb",
     "footprint": [1, 1],
     "rotation_increments_deg": 90,
-    "scale": 1.0,
+    "scale": 2.15,
     "y_offset": 0.0,
     "paint": "lamp"
   },
@@ -95,7 +95,7 @@
     "scene": "res://assets/models/furniture/plantSmall1.glb",
     "footprint": [1, 1],
     "rotation_increments_deg": 90,
-    "scale": 1.0,
+    "scale": 2.3,
     "y_offset": 0.0,
     "paint": "plant"
   },
@@ -105,7 +105,7 @@
     "scene": "res://assets/models/furniture/bear.glb",
     "footprint": [1, 1],
     "rotation_increments_deg": 90,
-    "scale": 1.0,
+    "scale": 1.15,
     "y_offset": 0.0,
     "paint": "bear"
   },
@@ -115,8 +115,8 @@
     "scene": "res://assets/models/furniture/rugRectangle.glb",
     "footprint": [2, 1],
     "rotation_increments_deg": 90,
-    "scale": 1.0,
-    "y_offset": 0.01,
+    "scale": 1.8,
+    "y_offset": 0.02,
     "paint": "soft",
     "allow_overlap_floor": true
   }

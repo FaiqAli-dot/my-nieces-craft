@@ -264,8 +264,11 @@ func _test_house_ui_mouse_filters() -> void:
 	await get_tree().process_frame
 	var toast: Control = ui.get_node_or_null("Root/Toast")
 	var hint: Control = ui.get_node_or_null("Root/Hint")
+	var card: Control = ui.get_node_or_null("Root/StatusCard")
 	_assert(toast != null and toast.mouse_filter == Control.MOUSE_FILTER_IGNORE, "HouseUI toast ignores mouse")
 	_assert(hint != null and hint.mouse_filter == Control.MOUSE_FILTER_IGNORE, "HouseUI hint ignores mouse")
+	_assert(card != null and card.mouse_filter == Control.MOUSE_FILTER_IGNORE, "StatusCard ignores mouse")
+	_assert(ui.debug_box != null and ui.debug_box.visible == false, "debug HUD hidden by default")
 	ui.queue_free()
 	await get_tree().process_frame
 

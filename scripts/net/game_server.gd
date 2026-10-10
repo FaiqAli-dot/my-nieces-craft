@@ -123,6 +123,12 @@ func _handle_raw(peer_id: int, text: String) -> void:
 			_on_set_collab(peer_id, p)
 		NetProtocol.C_REQUEST_INVITE:
 			_on_request_invite(peer_id)
+		NetProtocol.C_REVOKE_INVITE:
+			_on_revoke_invite(peer_id)
+		NetProtocol.C_ROTATE_INVITE:
+			_on_rotate_invite(peer_id)
+		NetProtocol.C_SET_OWNER:
+			_send_error(peer_id, "ownership cannot be changed by clients", "no_permission")
 		NetProtocol.C_PING:
 			_send(peer_id, NetProtocol.pack(NetProtocol.S_PONG, {"t": Time.get_ticks_msec()}))
 		_:
@@ -177,14 +183,22 @@ func _on_join_invite(peer_id: int, p: Dictionary) -> void:
 		return
 	var house_id := store.get_house_id_for_invite(code)
 	if house_id == "":
-		_send_error(peer_id, "invalid invite")
+		_send_error(peer_id, "invalid invite", "invalid_invite")
 		return
 	var house := store.load_house(house_id)
 	if house == null:
 		_send_error(peer_id, "house missing")
 		return
+	if house.invite_code != code or not house.invite_is_valid():
+		var why := "invalid invite"
+		if house.invite_revoked:
+			why = "invite revoked"
+		elif house.invite_expires_at > 0:
+			why = "invite expired"
+		_send_error(peer_id, why, "invalid_invite")
+		return
 	if not HousePermissions.can_enter(house, player_id, true):
-		_send_error(peer_id, "not allowed")
+		_send_error(peer_id, "not allowed", "no_permission")
 		return
 	_enter_house(peer_id, house, false)
 
@@ -470,9 +484,47 @@ func _on_request_invite(peer_id: int) -> void:
 	if house == null or not HousePermissions.can_manage_invite(house, player_id):
 		_send_error(peer_id, "only owner can view invite", "no_permission")
 		return
+	if house.invite_revoked or house.invite_code == "":
+		store.rotate_invite(house)
+		house = store.load_house(house_id)
 	_send(peer_id, NetProtocol.pack(NetProtocol.S_INVITE, {
 		"code": house.invite_code,
 		"house_id": house.house_id,
+		"expires_at": house.invite_expires_at,
+		"revoked": house.invite_revoked,
+	}))
+
+
+func _on_revoke_invite(peer_id: int) -> void:
+	var info: Dictionary = _peers.get(peer_id, {})
+	var house_id := str(info.get("house_id", ""))
+	var player_id := str(info.get("player_id", ""))
+	var house := store.load_house(house_id)
+	if house == null or not HousePermissions.can_manage_invite(house, player_id):
+		_send_error(peer_id, "only owner can revoke invite", "no_permission")
+		return
+	store.revoke_invite(house)
+	_send(peer_id, NetProtocol.pack(NetProtocol.S_INVITE, {
+		"code": "",
+		"house_id": house.house_id,
+		"revoked": true,
+	}))
+
+
+func _on_rotate_invite(peer_id: int) -> void:
+	var info: Dictionary = _peers.get(peer_id, {})
+	var house_id := str(info.get("house_id", ""))
+	var player_id := str(info.get("player_id", ""))
+	var house := store.load_house(house_id)
+	if house == null or not HousePermissions.can_manage_invite(house, player_id):
+		_send_error(peer_id, "only owner can rotate invite", "no_permission")
+		return
+	store.rotate_invite(house)
+	house = store.load_house(house_id)
+	_send(peer_id, NetProtocol.pack(NetProtocol.S_INVITE, {
+		"code": house.invite_code,
+		"house_id": house.house_id,
+		"revoked": false,
 	}))
 
 
