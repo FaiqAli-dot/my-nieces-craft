@@ -10,6 +10,7 @@ func _ready() -> void:
 	_test_inventory()
 	_test_crafting()
 	_test_placement_helpers()
+	_test_face_winding_outward()
 	await _test_crosshair_does_not_block_clicks()
 	_test_furniture_grid()
 	_test_furniture_validation()
@@ -87,6 +88,40 @@ func _test_placement_helpers() -> void:
 	var block_outside := AABB(Vector3(12, 5, 12), Vector3.ONE)
 	_assert(player_aabb.intersects(block_inside), "overlap detected")
 	_assert(not player_aabb.intersects(block_outside), "no overlap outside")
+
+
+func _test_face_winding_outward() -> void:
+	## Godot front faces are clockwise-from-outside; winding normal points inward.
+	var faces: Array = VoxelChunk.face_templates()
+	_assert(faces.size() == 6, "six face templates")
+	var seen := {}
+	for f in faces:
+		var name := str(f.get("name", ""))
+		var outward: Vector3 = f["n"]
+		var verts: Array = f["d"]
+		var flip := bool(f.get("flip", false))
+		_assert(verts.size() == 4, "%s has 4 verts" % name)
+		var winding := VoxelChunk.face_winding_normal(verts, flip)
+		_assert(VoxelChunk.face_winding_is_godot_front(outward, verts, flip), "%s winding is Godot CW front (inward)" % name)
+		# Explicit per-direction: winding opposite outward
+		_assert(winding.dot(outward) < -0.5, "%s winding opposite outward normal" % name)
+		# Stored normal must match expected axis direction
+		match name:
+			"up":
+				_assert(outward.dot(Vector3.UP) > 0.9, "up normal +Y")
+			"down":
+				_assert(outward.dot(Vector3.DOWN) > 0.9, "down normal -Y")
+			"forward":
+				_assert(outward.dot(Vector3.FORWARD) > 0.9, "forward normal -Z")
+			"back":
+				_assert(outward.dot(Vector3.BACK) > 0.9, "back normal +Z")
+			"left":
+				_assert(outward.dot(Vector3.LEFT) > 0.9, "left normal -X")
+			"right":
+				_assert(outward.dot(Vector3.RIGHT) > 0.9, "right normal +X")
+		seen[name] = true
+	for expected in ["up", "down", "forward", "back", "left", "right"]:
+		_assert(seen.has(expected), "has face %s" % expected)
 
 
 func _test_crosshair_does_not_block_clicks() -> void:

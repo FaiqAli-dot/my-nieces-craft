@@ -62,6 +62,47 @@ func set_block_world(wx: int, wy: int, wz: int, id: int) -> void:
 	set_block_local(wx - chunk_pos.x * SIZE, wy - chunk_pos.y * SIZE, wz - chunk_pos.z * SIZE, id)
 
 
+## Face templates for greedy-less cube meshing.
+## Godot uses clockwise winding for front faces — each quad's first triangle
+## (verts 0,1,2) must be clockwise when viewed from outside (winding normal
+## points inward / opposite the outward face normal).
+static func face_templates() -> Array:
+	## Quad corners listed; triangle order is applied in rebuild_mesh.
+	## Top/bottom quads are already clockwise-from-outside (Godot front).
+	## Side quads are listed counter-clockwise-from-outside and are reversed
+	## via face_tri_order(flip=true) so they become Godot front faces.
+	return [
+		{"name": "up", "n": Vector3.UP, "d": [Vector3(0,1,0), Vector3(1,1,0), Vector3(1,1,1), Vector3(0,1,1)], "key": "top", "ox":0,"oy":1,"oz":0, "shade": Color(1.0, 1.0, 0.96), "flip": false},
+		{"name": "down", "n": Vector3.DOWN, "d": [Vector3(0,0,1), Vector3(1,0,1), Vector3(1,0,0), Vector3(0,0,0)], "key": "bottom", "ox":0,"oy":-1,"oz":0, "shade": Color(0.50, 0.48, 0.45), "flip": false},
+		{"name": "forward", "n": Vector3.FORWARD, "d": [Vector3(1,0,0), Vector3(0,0,0), Vector3(0,1,0), Vector3(1,1,0)], "key": "side", "ox":0,"oy":0,"oz":-1, "shade": Color(0.70, 0.72, 0.74), "flip": true},
+		{"name": "back", "n": Vector3.BACK, "d": [Vector3(0,0,1), Vector3(1,0,1), Vector3(1,1,1), Vector3(0,1,1)], "key": "side", "ox":0,"oy":0,"oz":1, "shade": Color(0.86, 0.84, 0.80), "flip": true},
+		{"name": "left", "n": Vector3.LEFT, "d": [Vector3(0,0,0), Vector3(0,0,1), Vector3(0,1,1), Vector3(0,1,0)], "key": "side", "ox":-1,"oy":0,"oz":0, "shade": Color(0.66, 0.68, 0.70), "flip": true},
+		{"name": "right", "n": Vector3.RIGHT, "d": [Vector3(1,0,1), Vector3(1,0,0), Vector3(1,1,0), Vector3(1,1,1)], "key": "side", "ox":1,"oy":0,"oz":0, "shade": Color(0.92, 0.90, 0.86), "flip": true},
+	]
+
+
+## Returns winding normal of the first triangle (verts 0,1,2). For Godot CW
+## front faces this should point inward (opposite outward normal `n`).
+static func face_tri_order(flip: bool) -> Array:
+	## Godot front faces are clockwise-from-outside.
+	if flip:
+		return [0, 2, 1, 0, 3, 2]
+	return [0, 1, 2, 0, 2, 3]
+
+
+static func face_winding_normal(verts: Array, flip: bool = false) -> Vector3:
+	var order := face_tri_order(flip)
+	var a: Vector3 = verts[order[0]]
+	var b: Vector3 = verts[order[1]]
+	var c: Vector3 = verts[order[2]]
+	return (b - a).cross(c - a)
+
+
+static func face_winding_is_godot_front(outward: Vector3, verts: Array, flip: bool = false) -> bool:
+	## Clockwise-from-outside ⇒ winding normal points opposite outward.
+	return face_winding_normal(verts, flip).dot(outward) < -0.5
+
+
 func rebuild_mesh() -> void:
 	if not dirty:
 		return
@@ -70,14 +111,7 @@ func rebuild_mesh() -> void:
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var atlas := BlockDB.get_atlas_texture()
 	# Per-face shade — enough contrast to read form without crushing light wood to charcoal
-	var faces := [
-		{"n": Vector3.UP, "d": [Vector3(0,1,0), Vector3(1,1,0), Vector3(1,1,1), Vector3(0,1,1)], "key": "top", "ox":0,"oy":1,"oz":0, "shade": Color(1.0, 1.0, 0.96)},
-		{"n": Vector3.DOWN, "d": [Vector3(0,0,1), Vector3(1,0,1), Vector3(1,0,0), Vector3(0,0,0)], "key": "bottom", "ox":0,"oy":-1,"oz":0, "shade": Color(0.50, 0.48, 0.45)},
-		{"n": Vector3.FORWARD, "d": [Vector3(1,0,0), Vector3(0,0,0), Vector3(0,1,0), Vector3(1,1,0)], "key": "side", "ox":0,"oy":0,"oz":-1, "shade": Color(0.70, 0.72, 0.74)},
-		{"n": Vector3.BACK, "d": [Vector3(0,0,1), Vector3(1,0,1), Vector3(1,1,1), Vector3(0,1,1)], "key": "side", "ox":0,"oy":0,"oz":1, "shade": Color(0.86, 0.84, 0.80)},
-		{"n": Vector3.LEFT, "d": [Vector3(0,0,0), Vector3(0,0,1), Vector3(0,1,1), Vector3(0,1,0)], "key": "side", "ox":-1,"oy":0,"oz":0, "shade": Color(0.66, 0.68, 0.70)},
-		{"n": Vector3.RIGHT, "d": [Vector3(1,0,1), Vector3(1,0,0), Vector3(1,1,0), Vector3(1,1,1)], "key": "side", "ox":1,"oy":0,"oz":0, "shade": Color(0.92, 0.90, 0.86)},
-	]
+	var faces := face_templates()
 	var collider := ConcavePolygonShape3D.new()
 	var coll_faces: PackedVector3Array = PackedVector3Array()
 	var vert_count := 0
@@ -126,7 +160,8 @@ func rebuild_mesh() -> void:
 						var patch := 0.94 + 0.10 * sin(float(wx) * 0.31) * cos(float(wz) * 0.27)
 						patch += 0.04 * sin(float(wx + wz) * 0.17)
 						shade = Color(shade.r * patch, shade.g * minf(patch * 1.02, 1.08), shade.b * patch)
-					var order := [0, 1, 2, 0, 2, 3]
+					var flip := bool(f.get("flip", false))
+					var order: Array = face_tri_order(flip)
 					for oi in order:
 						st.set_normal(f["n"])
 						st.set_color(shade)
@@ -148,9 +183,11 @@ func rebuild_mesh() -> void:
 		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 		mat.alpha_scissor_threshold = 0.05
+		mat.cull_mode = BaseMaterial3D.CULL_BACK
 		if mesh != null:
 			mesh.surface_set_material(0, mat)
 			_mesh_instance.mesh = mesh
+
 	if coll_faces.size() > 0:
 		collider.set_faces(coll_faces)
 		_collision.shape = collider
