@@ -44,11 +44,17 @@ static func style_box(
 
 
 static func circle_style(bg: Color, border: Color, border_w: int = 4, diameter: float = 96.0) -> StyleBoxFlat:
-	var s := style_box(bg, diameter * 0.5, border, border_w, true)
+	var fill := Color(bg.r, bg.g, bg.b, 1.0)
+	var s := style_box(fill, diameter * 0.5, border, border_w, true)
+	s.draw_center = true
+	s.anti_aliasing = true
 	s.content_margin_left = 0
 	s.content_margin_right = 0
 	s.content_margin_top = 0
 	s.content_margin_bottom = 0
+	s.shadow_size = 8
+	s.shadow_offset = Vector2(0, 3)
+	s.shadow_color = COL_SHADOW
 	return s
 
 

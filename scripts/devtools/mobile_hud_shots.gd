@@ -1,7 +1,8 @@
 extends Node
 ## Capture polished mobile HUD at phone / tablet landscape sizes.
 ## COZY_MOBILE_HUD_SHOTS=1 COZY_FORCE_TOUCH=1 COZY_SAFE_INSET=48,12,48,28 \
-##   godot --path . --resolution WxH ...
+##   COZY_SHOT_LABEL=phone_hud godot --path . --resolution WxH ...
+## Optional: COZY_SHOT_MODE=pressed|joystick
 
 func _ready() -> void:
 	if OS.get_environment("COZY_MOBILE_HUD_SHOTS") != "1":
@@ -17,11 +18,29 @@ func _ready() -> void:
 	if ui.touch_controls:
 		ui.touch_controls._on_viewport_resized()
 
-	player.global_position = Vector3(28, 7.5, 46)
-	player.look_yaw = 0.15
-	player.look_pitch = -0.24
+	# Clear meadow view: spawn-ish, facing the warm playhouse / build pad (not into trees).
+	player.global_position = Vector3(32.5, float(VoxelWorld.GROUND_Y) + 1.7, 44.0)
+	var look_at := Vector3(36.5, float(VoxelWorld.GROUND_Y) + 2.2, 36.5)
+	var to := look_at - player.global_position
+	player.look_yaw = atan2(-to.x, -to.z)
+	player.look_pitch = -0.18
 	player.head.rotation.y = player.look_yaw
 	player.camera.rotation.x = player.look_pitch
+
+	var mode := OS.get_environment("COZY_SHOT_MODE")
+	if mode == "pressed" and ui.touch_controls and ui.touch_controls.actions:
+		ui.touch_controls.actions.jump_btn.set_pressed_visual(true)
+		ui.touch_controls.actions.place_btn.set_pressed_visual(true)
+		ui.touch_controls.actions.break_btn.set_pressed_visual(true)
+		if ui.touch_controls.actions.craft_btn.visible:
+			ui.touch_controls.actions.craft_btn.set_pressed_visual(true)
+	elif mode == "joystick" and ui.touch_controls and ui.touch_controls.joystick:
+		var joy: VirtualJoystick = ui.touch_controls.joystick
+		var center := joy.size * 0.5
+		joy.simulate_touch(0, center, true)
+		joy.simulate_drag(0, center + Vector2(48, -36))
+		if player:
+			player.set_touch_move(joy.get_vector())
 
 	var out_dir := OS.get_environment("COZY_SHOT_DIR")
 	if out_dir == "":
@@ -33,7 +52,7 @@ func _ready() -> void:
 		var vp := get_viewport().get_visible_rect().size
 		label = "hud_%dx%d" % [int(vp.x), int(vp.y)]
 
-	for i in 4:
+	for i in 5:
 		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()

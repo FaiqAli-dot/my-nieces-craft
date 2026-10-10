@@ -188,6 +188,14 @@ func _test_touch_hud_mouse_filters() -> void:
 	var place_btn := ui.touch_controls.get_action_button("place")
 	_assert(place_btn != null, "place action button present")
 	_assert(place_btn.mouse_filter == Control.MOUSE_FILTER_STOP, "place button is interactive")
+	# Regression: filled circular body must exist (Button.flat previously hid StyleBoxes).
+	var body := place_btn.get_node_or_null("Body") as Panel
+	_assert(body != null, "place button has Body panel")
+	if body:
+		var sb := body.get_theme_stylebox("panel")
+		_assert(sb is StyleBoxFlat and (sb as StyleBoxFlat).draw_center, "place button body StyleBox draws fill")
+		_assert((sb as StyleBoxFlat).bg_color.a > 0.9, "place button body is opaque")
+	_assert(ui.touch_controls.look_area.show_hint == false or OS.get_environment("COZY_LOOK_HINT") == "1", "LOOK hint off by default")
 	# Desktop hide path
 	GameState.touch_controls_forced = false
 	ui.touch_layer.visible = false

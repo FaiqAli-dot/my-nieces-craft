@@ -103,18 +103,14 @@ func _run() -> void:
 		await get_tree().physics_frame
 	p = player.get_place_pos()
 	_assert(p.x != -9999 and player.world.get_block(p.x, p.y, p.z) == 0, "cell clear for touch place")
-	var place_btn: BaseButton = null
+	var place_btn: ActionButton = null
 	if ui.touch_controls and ui.touch_controls.has_method("get_action_button"):
 		place_btn = ui.touch_controls.get_action_button("place")
 	if place_btn == null:
-		place_btn = ui.touch_layer.find_child("PlaceButton", true, false) as BaseButton
+		place_btn = ui.touch_layer.find_child("PlaceButton", true, false) as ActionButton
 	_assert(place_btn != null, "Place touch button exists")
 	if place_btn:
-		# Prefer ActionButton signal path (pressed visual + gameplay).
-		if place_btn.has_signal("action_pressed"):
-			place_btn.emit_signal("action_pressed")
-		else:
-			place_btn.pressed.emit()
+		place_btn.action_pressed.emit()
 		await get_tree().process_frame
 		await get_tree().physics_frame
 	var after_touch := player.world.get_block(p.x, p.y, p.z) if p.x != -9999 else 0

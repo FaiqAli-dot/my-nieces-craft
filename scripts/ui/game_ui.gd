@@ -23,6 +23,11 @@ var menu_panel: PanelContainer
 var confirm_panel: PanelContainer
 var creative_label: Label
 var mode_btn: Button
+var top_bar: MarginContainer
+var top_row: HBoxContainer
+var bag_btn: Button
+var craft_top_btn: Button
+var menu_btn: Button
 
 var _toast_timer := 0.0
 var _font: Font
@@ -82,13 +87,24 @@ func _sb(bg: Color, radius := 16, border := Color(0,0,0,0), border_w := 0) -> St
 func _theme_button(b: Button, min_size := Vector2(96, 64), bg := COL_ACCENT) -> void:
 	b.custom_minimum_size = min_size
 	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_stylebox_override("normal", _sb(bg, 18))
-	b.add_theme_stylebox_override("hover", _sb(bg.lightened(0.08), 18))
-	b.add_theme_stylebox_override("pressed", _sb(bg.darkened(0.08), 18))
+	b.flat = false
+	b.add_theme_stylebox_override("normal", _sb(bg, 18, Color(1, 1, 1, 0.85), 3))
+	b.add_theme_stylebox_override("hover", _sb(bg.lightened(0.08), 18, Color(1, 1, 1, 0.95), 3))
+	b.add_theme_stylebox_override("pressed", _sb(bg.darkened(0.1), 18, COL_INK, 4))
 	b.add_theme_color_override("font_color", COL_INK)
 	if _font:
 		b.add_theme_font_override("font", _font)
-		b.add_theme_font_size_override("font_size", 22)
+		b.add_theme_font_size_override("font_size", 20)
+
+
+func _icon_chip(b: Button, icon_res: String, bg: Color, tip: String, min_size: Vector2) -> void:
+	_theme_button(b, min_size, bg)
+	b.text = ""
+	b.tooltip_text = tip
+	b.expand_icon = true
+	if ResourceLoader.exists(icon_res):
+		b.icon = load(icon_res)
+	b.add_theme_constant_override("icon_max_width", int(min_size.y * 0.62))
 
 
 func _build_ui() -> void:
@@ -110,38 +126,51 @@ func _build_ui() -> void:
 	cross.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(cross)
 
-	var top := HBoxContainer.new()
-	top.name = "TopBar"
-	top.position = Vector2(16, 12)
-	top.add_theme_constant_override("separation", 10)
-	_root.add_child(top)
+	top_bar = MarginContainer.new()
+	top_bar.name = "TopBar"
+	top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	top_bar.offset_bottom = 72
+	top_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(top_bar)
+	top_row = HBoxContainer.new()
+	top_row.name = "Row"
+	top_row.add_theme_constant_override("separation", 8)
+	top_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_bar.add_child(top_row)
+
+	mode_btn = Button.new()
+	mode_btn.name = "ModeButton"
+	_icon_chip(mode_btn, "res://assets/ui/icons/icon_creative.png", COL_GREEN, "Creative mode", Vector2(56, 52))
+	mode_btn.pressed.connect(func(): GameState.toggle_creative())
+	top_row.add_child(mode_btn)
 	creative_label = Label.new()
+	creative_label.name = "ModeLabel"
 	creative_label.text = "Play"
+	creative_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	if _font:
 		creative_label.add_theme_font_override("font", _font)
-		creative_label.add_theme_font_size_override("font_size", 28)
+		creative_label.add_theme_font_size_override("font_size", 20)
 	creative_label.add_theme_color_override("font_color", COL_INK)
 	creative_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_child(creative_label)
-	mode_btn = Button.new()
-	_theme_button(mode_btn, Vector2(150, 52), COL_GREEN)
-	mode_btn.pressed.connect(func(): GameState.toggle_creative())
-	top.add_child(mode_btn)
-	var inv_btn := Button.new()
-	inv_btn.text = "Bag"
-	_theme_button(inv_btn, Vector2(96, 52), COL_SKY)
-	inv_btn.pressed.connect(toggle_inventory)
-	top.add_child(inv_btn)
-	var craft_btn := Button.new()
-	craft_btn.text = "Craft"
-	_theme_button(craft_btn, Vector2(96, 52), COL_PINK)
-	craft_btn.pressed.connect(toggle_craft)
-	top.add_child(craft_btn)
-	var menu_btn := Button.new()
-	menu_btn.text = "Menu"
-	_theme_button(menu_btn, Vector2(96, 52), COL_ACCENT)
+	top_row.add_child(creative_label)
+
+	bag_btn = Button.new()
+	bag_btn.name = "BagButton"
+	_icon_chip(bag_btn, "res://assets/ui/icons/icon_bag.png", COL_SKY, "Bag", Vector2(56, 52))
+	bag_btn.pressed.connect(toggle_inventory)
+	top_row.add_child(bag_btn)
+
+	craft_top_btn = Button.new()
+	craft_top_btn.name = "CraftTopButton"
+	_icon_chip(craft_top_btn, "res://assets/ui/icons/icon_craft.png", COL_PINK, "Craft", Vector2(56, 52))
+	craft_top_btn.pressed.connect(toggle_craft)
+	top_row.add_child(craft_top_btn)
+
+	menu_btn = Button.new()
+	menu_btn.name = "MenuButton"
+	_icon_chip(menu_btn, "res://assets/ui/icons/icon_menu.png", COL_ACCENT, "Menu", Vector2(56, 52))
 	menu_btn.pressed.connect(toggle_menu)
-	top.add_child(menu_btn)
+	top_row.add_child(menu_btn)
 
 	toast_label = Label.new()
 	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -231,6 +260,7 @@ func _build_ui() -> void:
 
 
 func _layout_hotbar() -> void:
+	_layout_top_bar()
 	if hotbar_tray == null:
 		return
 	var vp := get_viewport().get_visible_rect().size
@@ -252,6 +282,38 @@ func _layout_hotbar() -> void:
 	hotbar_tray.offset_right = width * 0.5
 	hotbar_tray.offset_top = -height - bottom
 	hotbar_tray.offset_bottom = -bottom
+
+
+func _layout_top_bar() -> void:
+	if top_bar == null:
+		return
+	var vp := get_viewport().get_visible_rect().size
+	var short_side := minf(vp.x, vp.y)
+	var phone_like := short_side < 900.0 or (vp.x / maxf(vp.y, 1.0) > 1.8)
+	var scale := clampf(short_side / 828.0, 0.85, 1.45)
+	var chip := (48.0 if phone_like else 56.0) * scale
+	var left := 12.0
+	var top := 10.0
+	var safe_env := OS.get_environment("COZY_SAFE_INSET")
+	if safe_env != "":
+		var parts := safe_env.split(",")
+		if parts.size() == 4:
+			left = maxf(left, float(parts[0]) + 8.0)
+			top = maxf(top, float(parts[1]) + 6.0)
+	top_bar.add_theme_constant_override("margin_left", int(left))
+	top_bar.add_theme_constant_override("margin_top", int(top))
+	top_bar.add_theme_constant_override("margin_right", 12)
+	top_bar.add_theme_constant_override("margin_bottom", 4)
+	top_bar.offset_bottom = top + chip + 16.0
+	for b in [mode_btn, bag_btn, craft_top_btn, menu_btn]:
+		if b:
+			b.custom_minimum_size = Vector2(chip, chip)
+			b.add_theme_constant_override("icon_max_width", int(chip * 0.62))
+	if creative_label:
+		# Compact on phone: icon-only chips, tiny mode word.
+		creative_label.visible = not phone_like
+		if _font:
+			creative_label.add_theme_font_size_override("font_size", int(18 * scale))
 
 
 func _make_panel(parent: Control, title: String, size: Vector2) -> PanelContainer:
@@ -410,8 +472,11 @@ func toggle_menu() -> void:
 
 func _on_creative(enabled: bool) -> void:
 	creative_label.text = "Creative" if enabled else "Limited"
-	mode_btn.text = "ON" if enabled else "OFF"
-	mode_btn.add_theme_stylebox_override("normal", _sb(COL_GREEN if enabled else Color("B0BEC5"), 18))
+	mode_btn.tooltip_text = "Creative ON" if enabled else "Creative OFF"
+	var bg := COL_GREEN if enabled else Color("B0BEC5")
+	mode_btn.add_theme_stylebox_override("normal", _sb(bg, 18, Color(1, 1, 1, 0.9), 3))
+	mode_btn.add_theme_stylebox_override("hover", _sb(bg.lightened(0.08), 18, Color(1, 1, 1, 0.95), 3))
+	mode_btn.add_theme_stylebox_override("pressed", _sb(bg.darkened(0.1), 18, COL_INK, 4))
 	refresh_hotbar()
 
 

@@ -67,6 +67,7 @@ func _build() -> void:
 	# Look area first (under actions). Covers right ~52% so left stays free for joystick.
 	look_area = LookArea.new()
 	look_area.name = "LookArea"
+	look_area.show_hint = OS.get_environment("COZY_LOOK_HINT") == "1"
 	look_area.sensitivity_x = look_sensitivity_x
 	look_area.sensitivity_y = look_sensitivity_y
 	look_area.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -155,10 +156,11 @@ func _on_viewport_resized() -> void:
 		joystick._layout()
 
 	actions.set_compact(phone_like)
-	actions.primary_size = 92.0 * scale
-	actions.secondary_size = 76.0 * scale
-	var aw := (210.0 if phone_like else 240.0) * scale
-	var ah := (240.0 if phone_like else 280.0) * scale
+	# Jump is clearly the largest target.
+	actions.primary_size = (104.0 if phone_like else 112.0) * scale
+	actions.secondary_size = (78.0 if phone_like else 86.0) * scale
+	var aw := (230.0 if phone_like else 270.0) * scale
+	var ah := (260.0 if phone_like else 310.0) * scale
 	actions.custom_minimum_size = Vector2(aw, ah)
 	actions.anchor_left = 1.0
 	actions.anchor_top = 1.0

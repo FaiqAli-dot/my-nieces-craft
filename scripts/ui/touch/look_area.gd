@@ -7,7 +7,8 @@ signal looking_changed(is_looking: bool)
 
 @export var sensitivity_x: float = 1.0
 @export var sensitivity_y: float = 1.0
-@export var show_hint: bool = true
+## Optional faint LOOK caption — off by default (looks like debug chrome).
+@export var show_hint: bool = false
 
 var _touch_index: int = -1
 var _looking := false

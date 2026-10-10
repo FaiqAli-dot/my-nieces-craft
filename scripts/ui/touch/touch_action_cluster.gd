@@ -24,13 +24,13 @@ func _ready() -> void:
 
 
 func _build() -> void:
-	# Layout: Place (top), Break (mid-left), Jump (large bottom-right), Craft (small top-left)
-	custom_minimum_size = Vector2(210, 240)
+	# Layout: Jump (large bottom-right), Place above, Break left, Craft upper-left.
+	custom_minimum_size = Vector2(240, 280)
 
 	jump_btn = _make_btn("JumpButton", CozyTouchTheme.COL_GREEN, "res://assets/ui/icons/icon_jump.png", "Jump", primary_size, 0.0)
 	break_btn = _make_btn("BreakButton", CozyTouchTheme.COL_BREAK, "res://assets/ui/icons/icon_break.png", "Break", secondary_size, 0.22)
 	place_btn = _make_btn("PlaceButton", CozyTouchTheme.COL_SKY, "res://assets/ui/icons/icon_place.png", "Place", secondary_size, 0.0)
-	craft_btn = _make_btn("CraftButton", CozyTouchTheme.COL_PINK, "res://assets/ui/icons/icon_craft.png", "Craft", 64.0, 0.0)
+	craft_btn = _make_btn("CraftButton", CozyTouchTheme.COL_PINK, "res://assets/ui/icons/icon_craft.png", "Craft", secondary_size * 0.9, 0.0)
 	craft_btn.visible = show_craft
 
 	jump_btn.action_pressed.connect(func(): jump_pressed.emit())
