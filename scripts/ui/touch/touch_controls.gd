@@ -28,11 +28,14 @@ var _root: Control
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_parse_safe_env()
 	_build()
 	_apply_safe_margins()
 	get_viewport().size_changed.connect(_on_viewport_resized)
+	# Parent CanvasLayer may not have a final size until the next frame.
+	call_deferred("_on_viewport_resized")
+	await get_tree().process_frame
 	_on_viewport_resized()
 
 
@@ -107,21 +110,25 @@ func _compute_insets() -> Vector4:
 	var inset := extra_safe_insets
 	if simulate_safe_insets != Vector4.ZERO:
 		inset += simulate_safe_insets
-	else:
+		return inset
+	# Prefer OS safe area only on real mobile; desktop/Xvfb reports are unreliable.
+	var mobile := OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios")
+	if mobile:
 		var win := get_window()
 		if win:
 			var safe := DisplayServer.get_display_safe_area()
-			var full := Rect2(Vector2.ZERO, Vector2(win.size))
-			# Only apply when the OS reports a true inset (mobile).
-			if safe.size.x > 0 and safe.size.y > 0 and safe != Rect2i(full):
-				inset.x += float(safe.position.x - full.position.x)
-				inset.y += float(safe.position.y - full.position.y)
-				inset.z += float((full.position.x + full.size.x) - (safe.position.x + safe.size.x))
-				inset.w += float((full.position.y + full.size.y) - (safe.position.y + safe.size.y))
+			var full := Rect2i(Vector2i.ZERO, win.size)
+			if safe.size.x > 0 and safe.size.y > 0 and safe != full:
+				inset.x += float(maxi(safe.position.x - full.position.x, 0))
+				inset.y += float(maxi(safe.position.y - full.position.y, 0))
+				inset.z += float(maxi((full.position.x + full.size.x) - (safe.position.x + safe.size.x), 0))
+				inset.w += float(maxi((full.position.y + full.size.y) - (safe.position.y + safe.size.y), 0))
 	return inset
 
 
 func _on_viewport_resized() -> void:
+	if joystick == null or actions == null or look_area == null:
+		return
 	_apply_safe_margins()
 	var vp := get_viewport().get_visible_rect().size
 	var short_side := minf(vp.x, vp.y)
@@ -129,14 +136,19 @@ func _on_viewport_resized() -> void:
 	# Scale controls for phone vs tablet.
 	var joy_d := 132.0 if phone_like else 156.0
 	var joy_pad := 28.0 if phone_like else 40.0
+	var joy_size := Vector2(joy_d + joy_pad * 2.0, joy_d + joy_pad * 2.0 + 22.0)
 	joystick.base_diameter = joy_d
 	joystick.knob_diameter = 56.0 if phone_like else 66.0
 	joystick.activation_padding = joy_pad
-	joystick.custom_minimum_size = Vector2(joy_d + joy_pad * 2.0, joy_d + joy_pad * 2.0)
-	joystick.size = joystick.custom_minimum_size
+	joystick.custom_minimum_size = joy_size
+	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	joystick.anchor_left = 0.0
+	joystick.anchor_top = 1.0
+	joystick.anchor_right = 0.0
+	joystick.anchor_bottom = 1.0
 	joystick.offset_left = 4.0
-	joystick.offset_top = -joystick.size.y - 8.0
-	joystick.offset_right = joystick.offset_left + joystick.size.x
+	joystick.offset_top = -joy_size.y - 8.0
+	joystick.offset_right = 4.0 + joy_size.x
 	joystick.offset_bottom = -8.0
 	if joystick.has_method("_layout"):
 		joystick._layout()
@@ -145,11 +157,14 @@ func _on_viewport_resized() -> void:
 	var aw := 200.0 if phone_like else 220.0
 	var ah := 230.0 if phone_like else 250.0
 	actions.custom_minimum_size = Vector2(aw, ah)
-	actions.size = Vector2(aw, ah)
-	actions.offset_right = -4.0
-	actions.offset_bottom = -4.0
+	actions.anchor_left = 1.0
+	actions.anchor_top = 1.0
+	actions.anchor_right = 1.0
+	actions.anchor_bottom = 1.0
 	actions.offset_left = -aw - 4.0
 	actions.offset_top = -ah - 4.0
+	actions.offset_right = -4.0
+	actions.offset_bottom = -4.0
 	if actions.has_method("_layout"):
 		actions._layout()
 

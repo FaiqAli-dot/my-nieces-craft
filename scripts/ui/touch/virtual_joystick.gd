@@ -75,8 +75,10 @@ func _layout() -> void:
 	var center := size * 0.5
 	_base.size = Vector2(base_diameter, base_diameter)
 	_base.position = center - _base.size * 0.5
-	_caption.size = Vector2(base_diameter, 28)
-	_caption.position = Vector2(center.x - base_diameter * 0.5, _base.position.y + base_diameter + 2.0)
+	# Keep caption inside control bounds (above bottom edge).
+	_caption.size = Vector2(base_diameter, 20)
+	var caption_y := mini(_base.position.y + base_diameter + 2.0, size.y - 20.0)
+	_caption.position = Vector2(center.x - base_diameter * 0.5, caption_y)
 	_reset_knob(_active)
 
 

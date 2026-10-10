@@ -151,13 +151,22 @@ func _run() -> void:
 	_assert(player.inventory.selected == 2, "hotbar selects slot 2")
 
 	# Layout: controls inside viewport; joystick left, actions right, no overlap.
+	ui.touch_controls._on_viewport_resized()
+	await get_tree().process_frame
+	await get_tree().process_frame
 	var vp_rect := get_viewport().get_visible_rect()
-	_assert(vp_rect.encloses(joy.get_global_rect().grow(-2)), "joystick inside viewport")
-	_assert(vp_rect.encloses(actions.get_global_rect().grow(-2)), "actions inside viewport")
-	_assert(vp_rect.encloses(ui.hotbar_tray.get_global_rect().grow(-2)), "hotbar inside viewport")
-	_assert(joy.get_global_rect().position.x < vp_rect.size.x * 0.45, "joystick on left half")
-	_assert(actions.get_global_rect().end.x > vp_rect.size.x * 0.55, "actions on right half")
-	_assert(not joy.get_global_rect().intersects(actions.get_global_rect()), "joystick and actions do not overlap")
+	var joy_r := joy.get_global_rect()
+	var act_r := actions.get_global_rect()
+	var hot_r := ui.hotbar_tray.get_global_rect()
+	print("[TOUCH] layout vp=", vp_rect, " joy=", joy_r, " actions=", act_r, " hotbar=", hot_r)
+	_assert(joy_r.size.x > 8.0 and joy_r.size.y > 8.0, "joystick has nonzero size")
+	_assert(act_r.size.x > 8.0 and act_r.size.y > 8.0, "actions have nonzero size")
+	_assert(vp_rect.encloses(joy_r.grow(-4)), "joystick inside viewport")
+	_assert(vp_rect.encloses(act_r.grow(-4)), "actions inside viewport")
+	_assert(vp_rect.encloses(hot_r.grow(-4)), "hotbar inside viewport")
+	_assert(joy_r.position.x < vp_rect.size.x * 0.45, "joystick on left half")
+	_assert(act_r.position.x > vp_rect.size.x * 0.45, "actions on right half")
+	_assert(not joy_r.intersects(act_r), "joystick and actions do not overlap")
 
 	# Joystick must not start look; look finger must not move joystick.
 	joy.simulate_touch(0, joy_center, false)
