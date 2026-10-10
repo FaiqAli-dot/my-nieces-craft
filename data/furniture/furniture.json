@@ -1,0 +1,123 @@
+{
+  "chair": {
+    "display_name": "Chair",
+    "category": "seating",
+    "scene": "res://assets/models/furniture/chair.glb",
+    "footprint": [1, 1],
+    "rotation_increments_deg": 90,
+    "scale": 1.0,
+    "y_offset": 0.0,
+    "paint": "wood"
+  },
+  "sofa": {
+    "display_name": "Cushion Seat",
+    "category": "seating",
+    "scene": "res://assets/models/furniture/chairCushion.glb",
+    "footprint": [1, 1],
+    "rotation_increments_deg": 90,
+    "scale": 1.15,
+    "y_offset": 0.0,
+    "paint": "wood"
+  },
+  "table": {
+    "display_name": "Table",
+    "category": "tables",
+    "scene": "res://assets/models/furniture/table.glb",
+    "footprint": [2, 2],
+    "rotation_increments_deg": 90,
+    "scale": 1.0,
+    "y_offset": 0.0,
+    "paint": "wood"
+  },
+  "coffee_table": {
+    "display_name": "Coffee Table",
+    "category": "tables",
+    "scene": "res://assets/models/furniture/tableCoffee.glb",
+    "footprint": [2, 1],
+    "rotation_increments_deg": 90,
+    "scale": 1.0,
+    "y_offset": 0.0,
+    "paint": "wood"
+  },
+  "bed": {
+    "display_name": "Bed",
+    "category": "bedroom",
+    "scene": "res://assets/models/furniture/bedSingle.glb",
+    "footprint": [2, 1],
+    "rotation_increments_deg": 90,
+    "scale": 1.0,
+    "y_offset": 0.0,
+    "paint": "soft"
+  },
+  "bookshelf": {
+    "display_name": "Bookshelf",
+    "category": "storage",
+    "scene": "res://assets/models/furniture/bookcaseOpen.glb",
+    "footprint": [1, 1],
+    "rotation_increments_deg": 90,
+    "scale": 1.0,
+    "y_offset": 0.0,
+    "paint": "wood"
+  },
+  "wardrobe": {
+    "display_name": "Wardrobe",
+    "category": "storage",
+    "scene": "res://assets/models/furniture/kitchenFridge.glb",
+    "footprint": [1, 1],
+    "rotation_increments_deg": 90,
+    "scale": 1.0,
+    "y_offset": 0.0,
+    "paint": "cool"
+  },
+  "desk": {
+    "display_name": "Desk",
+    "category": "tables",
+    "scene": "res://assets/models/furniture/desk.glb",
+    "footprint": [2, 1],
+    "rotation_increments_deg": 90,
+    "scale": 1.0,
+    "y_offset": 0.0,
+    "paint": "wood"
+  },
+  "lamp": {
+    "display_name": "Lamp",
+    "category": "decor",
+    "scene": "res://assets/models/furniture/lampRoundTable.glb",
+    "footprint": [1, 1],
+    "rotation_increments_deg": 90,
+    "scale": 1.0,
+    "y_offset": 0.0,
+    "paint": "lamp"
+  },
+  "plant": {
+    "display_name": "Plant",
+    "category": "decor",
+    "scene": "res://assets/models/furniture/plantSmall1.glb",
+    "footprint": [1, 1],
+    "rotation_increments_deg": 90,
+    "scale": 1.0,
+    "y_offset": 0.0,
+    "paint": "plant"
+  },
+  "bear": {
+    "display_name": "Teddy Bear",
+    "category": "decor",
+    "scene": "res://assets/models/furniture/bear.glb",
+    "footprint": [1, 1],
+    "rotation_increments_deg": 90,
+    "scale": 1.0,
+    "y_offset": 0.0,
+    "paint": "bear"
+  },
+  "rug": {
+    "display_name": "Rug",
+    "category": "decor",
+    "scene": "res://assets/models/furniture/rugRectangle.glb",
+    "footprint": [2, 1],
+    "rotation_increments_deg": 90,
+    "scale": 1.0,
+    "y_offset": 0.01,
+    "paint": "soft",
+    "allow_overlap_floor": true
+  }
+}
