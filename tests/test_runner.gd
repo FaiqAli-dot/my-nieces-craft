@@ -11,6 +11,8 @@ func _ready() -> void:
 	_test_crafting()
 	_test_placement_helpers()
 	await _test_crosshair_does_not_block_clicks()
+	await _test_virtual_joystick_and_look()
+	await _test_touch_hud_mouse_filters()
 	await _test_world_serialize()
 	await _test_chunk_mesh_update()
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
@@ -91,6 +93,70 @@ func _test_crosshair_does_not_block_clicks() -> void:
 	var cross: Control = ui.get_node_or_null("Root/Crosshair")
 	_assert(cross != null, "GameUI has Crosshair")
 	_assert(cross != null and cross.mouse_filter == Control.MOUSE_FILTER_IGNORE, "Crosshair ignores mouse")
+	ui.queue_free()
+	await get_tree().process_frame
+
+
+func _test_virtual_joystick_and_look() -> void:
+	var joy := VirtualJoystick.new()
+	joy.size = Vector2(200, 200)
+	add_child(joy)
+	await get_tree().process_frame
+	var center := joy.size * 0.5
+	joy.simulate_touch(0, center, true)
+	joy.simulate_drag(0, center + Vector2(60, 0))
+	_assert(joy.get_vector().x > 0.4, "joystick vector +x")
+	joy.simulate_drag(0, center + Vector2(0, -60))
+	_assert(joy.get_vector().y < -0.4, "joystick vector -y")
+	joy.simulate_touch(0, center, false)
+	_assert(joy.get_vector() == Vector2.ZERO, "joystick release zeros vector")
+
+	var look := LookArea.new()
+	look.size = Vector2(300, 400)
+	add_child(look)
+	await get_tree().process_frame
+	var got: Array = [Vector2.ZERO]
+	look.look_delta.connect(func(v: Vector2): got[0] = got[0] + v)
+	look.simulate_touch(1, look.size * 0.5, true)
+	_assert(look.is_looking(), "look touch begins looking")
+	look.simulate_drag(1, Vector2(12, -8))
+	_assert(got[0].x == 12 and got[0].y == -8, "look drag emits relative")
+	look.simulate_touch(1, look.size * 0.5, false)
+	got[0] = Vector2.ZERO
+	look.simulate_drag(1, Vector2(50, 0))
+	_assert(got[0] == Vector2.ZERO, "look ignores drag after release")
+
+	# Distinct indices: joystick 0 + look 1 simultaneously.
+	joy.simulate_touch(0, center + Vector2(40, 0), true)
+	joy.simulate_drag(0, center + Vector2(50, 0))
+	look.simulate_touch(1, look.size * 0.5, true)
+	look.simulate_drag(1, Vector2(5, 5))
+	_assert(joy.get_vector().x > 0.2, "multitouch joystick still active")
+	_assert(look.is_looking(), "multitouch look still active")
+	joy.simulate_touch(0, center, false)
+	look.simulate_touch(1, look.size * 0.5, false)
+	joy.queue_free()
+	look.queue_free()
+	await get_tree().process_frame
+
+
+func _test_touch_hud_mouse_filters() -> void:
+	GameState.touch_controls_forced = true
+	var ui := GameUi.new()
+	add_child(ui)
+	await get_tree().process_frame
+	ui._detect_touch()
+	await get_tree().process_frame
+	_assert(ui.touch_controls.visible, "forced touch shows controls")
+	_assert(ui.touch_controls.mouse_filter == Control.MOUSE_FILTER_IGNORE, "TouchControls root ignores mouse")
+	_assert(ui.touch_controls.look_area.anchor_left >= 0.54, "look area starts right of center")
+	var place_btn := ui.touch_controls.get_action_button("place")
+	_assert(place_btn != null, "place action button present")
+	_assert(place_btn.mouse_filter == Control.MOUSE_FILTER_STOP, "place button is interactive")
+	# Desktop hide path
+	GameState.touch_controls_forced = false
+	ui.touch_layer.visible = false
+	_assert(not ui.touch_layer.visible, "touch hidden on desktop path")
 	ui.queue_free()
 	await get_tree().process_frame
 

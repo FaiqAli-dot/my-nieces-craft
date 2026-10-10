@@ -10,17 +10,25 @@ func _ready() -> void:
 	_setup_environment()
 	var dresser := MeadowDresser.new()
 	dresser.dress(self)
-	if OS.get_environment("COZY_FORCE_TOUCH") == "1" or OS.get_environment("COZY_SCREENSHOTS") == "1":
+	if OS.get_environment("COZY_FORCE_TOUCH") == "1" or OS.get_environment("COZY_SCREENSHOTS") == "1" or OS.get_environment("COZY_MOBILE_HUD_SHOTS") == "1" or OS.get_environment("COZY_TOUCH_TEST") == "1":
 		GameState.touch_controls_forced = true
 		ui._detect_touch()
 	if OS.get_environment("COZY_SCREENSHOTS") == "1":
 		var harness := Node.new()
 		harness.set_script(load("res://scripts/devtools/screenshot_harness.gd"))
 		add_child(harness)
+	if OS.get_environment("COZY_MOBILE_HUD_SHOTS") == "1":
+		var hud_shots := Node.new()
+		hud_shots.set_script(load("res://scripts/devtools/mobile_hud_shots.gd"))
+		add_child(hud_shots)
 	if OS.get_environment("COZY_PLACE_UI_TEST") == "1":
 		var place_test := Node.new()
 		place_test.set_script(load("res://scripts/devtools/place_ui_regression.gd"))
 		add_child(place_test)
+	if OS.get_environment("COZY_TOUCH_TEST") == "1":
+		var touch_test := Node.new()
+		touch_test.set_script(load("res://scripts/devtools/touch_controls_regression.gd"))
+		add_child(touch_test)
 	if OS.get_environment("COZY_SMOKE") == "1":
 		await get_tree().create_timer(1.5).timeout
 		_run_smoke()
