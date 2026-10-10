@@ -14,6 +14,10 @@ const CAM_HEIGHT := 1.55
 const PITCH_MIN := deg_to_rad(-55)
 const PITCH_MAX := deg_to_rad(25)
 const TURN_SPEED := 10.0
+## Match ~1.8m avatar to 1m furniture cells / door height.
+const MODEL_SCALE := 0.9
+const CAPSULE_HEIGHT := 1.8
+const CAPSULE_RADIUS := 0.38
 
 signal moved(pos: Vector3, yaw: float, moving: bool)
 
@@ -39,13 +43,28 @@ var _was_moving := false
 @onready var spring: SpringArm3D = $CameraPivot/SpringArm3D
 @onready var camera: Camera3D = $CameraPivot/SpringArm3D/Camera3D
 @onready var model_root: Node3D = $ModelRoot
+@onready var collision_shape: CollisionShape3D = $CollisionShape3D
 
 
 func _ready() -> void:
+	_apply_body_proportions()
 	_spawn_model()
 	spring.spring_length = cam_distance
 	spring.collision_mask = 1
+	floor_snap_length = 0.25
+	safe_margin = 0.08
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+func _apply_body_proportions() -> void:
+	var capsule := collision_shape.shape as CapsuleShape3D
+	if capsule == null:
+		capsule = CapsuleShape3D.new()
+		collision_shape.shape = capsule
+	capsule.radius = CAPSULE_RADIUS
+	capsule.height = CAPSULE_HEIGHT
+	collision_shape.position = Vector3(0.0, CAPSULE_HEIGHT * 0.5, 0.0)
+	pivot.position = Vector3(0.0, CAM_HEIGHT, 0.0)
 
 
 func _spawn_model() -> void:
@@ -56,8 +75,7 @@ func _spawn_model() -> void:
 	if not ResourceLoader.exists(character_scene):
 		return
 	_model = load(character_scene).instantiate()
-	# Kenney Blocky Characters read large; ~0.62 matches ~chair-height furniture.
-	_model.scale = Vector3.ONE * 0.62
+	_model.scale = Vector3.ONE * MODEL_SCALE
 	model_root.add_child(_model)
 	_anim = _find_anim(_model)
 	if _anim:
@@ -150,6 +168,10 @@ func _physics_process(delta: float) -> void:
 		velocity.y = JUMP_VELOCITY
 
 	move_and_slide()
+	# Soft rescue if somehow below the floor slab.
+	if global_position.y < -2.0:
+		global_position = Vector3(6.0, 0.0, 9.0)
+		velocity = Vector3.ZERO
 
 	var now := Time.get_ticks_msec() / 1000.0
 	if now - _last_net_t >= 1.0 / 12.0:

@@ -60,28 +60,44 @@ func _run() -> void:
 				blocking = true
 	_assert(not blocking, "no unexpected HUD control blocks screen center")
 
-	# Joystick: drag index 0 → movement; release → zero.
+	# Floating joystick: spawn at several zone positions; release → zero + rest hint.
+	_assert(joy.floating_mode, "joystick floating_mode enabled")
 	player.set_touch_move(Vector2.ZERO)
-	var joy_center := joy.size * 0.5
-	joy.simulate_touch(0, joy_center, true)
-	joy.simulate_drag(0, joy_center + Vector2(40, 0))
-	await get_tree().process_frame
-	_assert(player.touch_move.x > 0.2, "joystick right moves +x")
-	joy.simulate_drag(0, joy_center + Vector2(0, 40))
+	var spawn_locals: Array[Vector2] = [
+		Vector2(joy.size.x * 0.25, joy.size.y * 0.35),
+		Vector2(joy.size.x * 0.55, joy.size.y * 0.45),
+		Vector2(joy.size.x * 0.35, joy.size.y * 0.65),
+	]
+	for sp in spawn_locals:
+		joy.simulate_touch(0, sp, true)
+		await get_tree().process_frame
+		_assert(joy.is_active(), "zone touch spawns stick at %s" % sp)
+		_assert(joy.visual_center().distance_to(sp) < joy.base_diameter * 0.55, "base centered near %s" % sp)
+		joy.simulate_drag(0, sp + Vector2(40, 0))
+		await get_tree().process_frame
+		_assert(player.touch_move.x > 0.2, "floating drag +x from %s" % sp)
+		joy.simulate_touch(0, sp, false)
+		await get_tree().process_frame
+		_assert(player.touch_move == Vector2.ZERO, "release clears move from %s" % sp)
+		_assert(joy.visual_center().distance_to(joy.rest_center()) < 2.0, "rest hint after %s" % sp)
+
+	var joy_spawn := Vector2(joy.size.x * 0.4, joy.size.y * 0.5)
+	joy.simulate_touch(0, joy_spawn, true)
+	joy.simulate_drag(0, joy_spawn + Vector2(0, 40))
 	await get_tree().process_frame
 	_assert(player.touch_move.y > 0.2, "joystick down moves +y")
-	joy.simulate_drag(0, joy_center + Vector2(-40, -40))
+	joy.simulate_drag(0, joy_spawn + Vector2(-40, -40))
 	await get_tree().process_frame
 	_assert(player.touch_move.x < -0.15 and player.touch_move.y < -0.15, "joystick diagonal NW")
-	joy.simulate_touch(0, joy_center, false)
+	joy.simulate_touch(0, joy_spawn, false)
 	await get_tree().process_frame
 	_assert(player.touch_move == Vector2.ZERO, "joystick release clears move")
 
 	# Look: separate finger index 1 while joystick uses index 0.
 	var yaw0 := player.look_yaw
 	var pitch0 := player.look_pitch
-	joy.simulate_touch(0, joy_center + Vector2(30, 0), true)
-	joy.simulate_drag(0, joy_center + Vector2(50, 0))
+	joy.simulate_touch(0, joy_spawn + Vector2(30, 0), true)
+	joy.simulate_drag(0, joy_spawn + Vector2(50, 0))
 	look.simulate_touch(1, look.size * 0.5, true)
 	look.simulate_drag(1, Vector2(40, -20))
 	# Apply look in physics.
@@ -96,7 +112,7 @@ func _run() -> void:
 	for i in 2:
 		await get_tree().physics_frame
 	_assert(is_equal_approx(player.look_yaw, yaw1), "look release ignores further drag")
-	joy.simulate_touch(0, joy_center, false)
+	joy.simulate_touch(0, joy_spawn, false)
 	await get_tree().process_frame
 	_assert(player.touch_move == Vector2.ZERO, "move finger release clears after multitouch")
 
@@ -150,14 +166,16 @@ func _run() -> void:
 	await get_tree().process_frame
 	_assert(player.inventory.selected == 2, "hotbar selects slot 2")
 
-	# Layout: controls inside viewport; joystick left, actions right, no overlap.
+	# Layout: left move zone, look/actions/hotbar/top chips outside it.
 	ui.touch_controls._on_viewport_resized()
+	ui._layout_hotbar()
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var vp_rect := get_viewport().get_visible_rect()
 	var joy_r := joy.get_global_rect()
 	var act_r := actions.get_global_rect()
 	var hot_r := ui.hotbar_tray.get_global_rect()
+	var look_r := look.get_global_rect()
 	print("[TOUCH] layout vp=", vp_rect, " joy=", joy_r, " actions=", act_r, " hotbar=", hot_r)
 	_assert(joy_r.size.x > 8.0 and joy_r.size.y > 8.0, "joystick has nonzero size")
 	_assert(act_r.size.x > 8.0 and act_r.size.y > 8.0, "actions have nonzero size")
@@ -165,18 +183,41 @@ func _run() -> void:
 	_assert(vp_rect.encloses(act_r.grow(-4)), "actions inside viewport")
 	_assert(vp_rect.encloses(hot_r.grow(-4)), "hotbar inside viewport")
 	_assert(joy_r.position.x < vp_rect.size.x * 0.45, "joystick on left half")
+	_assert(joy_r.end.x <= vp_rect.size.x * 0.50 + 2.0, "move zone ≤ left half")
 	_assert(act_r.position.x > vp_rect.size.x * 0.45, "actions on right half")
-	_assert(not joy_r.intersects(act_r), "joystick and actions do not overlap")
+	_assert(not joy_r.grow(-2).intersects(act_r.grow(-2)), "joystick and actions do not overlap")
+	_assert(not joy_r.grow(-2).intersects(look_r.grow(-2)), "move zone does not overlap look area")
+	_assert(not joy_r.grow(-2).intersects(hot_r.grow(-2)), "move zone does not overlap hotbar")
+	for chip in [ui.mode_btn, ui.bag_btn, ui.craft_top_btn, ui.menu_btn]:
+		if chip == null:
+			continue
+		var cr: Rect2 = chip.get_global_rect()
+		_assert(not joy_r.grow(-2).intersects(cr.grow(-2)), "move zone misses top chip %s" % chip.name)
+	for btn in [actions.jump_btn, actions.break_btn, actions.place_btn, actions.craft_btn]:
+		if btn == null or not btn.visible:
+			continue
+		_assert(not joy_r.grow(-2).intersects(btn.get_global_rect().grow(-2)), "move zone misses action %s" % btn.name)
 
 	# Joystick must not start look; look finger must not move joystick.
-	joy.simulate_touch(0, joy_center, false)
+	joy.simulate_touch(0, joy_spawn, false)
 	look.simulate_touch(1, look.size * 0.5, false)
 	player.set_touch_move(Vector2.ZERO)
 	look.simulate_touch(2, look.size * 0.5, true)
 	look.simulate_drag(2, Vector2(30, 0))
 	await get_tree().process_frame
 	_assert(player.touch_move == Vector2.ZERO, "look finger does not set move vector")
+	_assert(not joy.is_active(), "look finger does not spawn joystick")
 	look.simulate_touch(2, look.size * 0.5, false)
+
+	# Action / hotbar presses must not leave the stick active.
+	actions.jump_btn.action_pressed.emit()
+	await get_tree().process_frame
+	_assert(not joy.is_active(), "jump press does not spawn joystick")
+	var slot1 := ui.hotbar_tray.get_slot_button(1)
+	if slot1:
+		slot1.pressed.emit()
+		await get_tree().process_frame
+	_assert(not joy.is_active(), "hotbar tap does not spawn joystick")
 
 	print("[TOUCH] multitouch simulated with distinct ScreenTouch/ScreenDrag indices 0/1/2")
 

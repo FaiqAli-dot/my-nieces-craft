@@ -32,6 +32,9 @@ func reload() -> void:
 		def["rotation_increments_deg"] = int(def.get("rotation_increments_deg", 90))
 		def["scale"] = float(def.get("scale", 1.0))
 		def["y_offset"] = float(def.get("y_offset", 0.0))
+		def["solid"] = bool(def.get("solid", true))
+		def["collision_height"] = float(def.get("collision_height", 1.0))
+		def["collision_scale"] = float(def.get("collision_scale", 0.92))
 		_by_id[str(key)] = def
 
 
@@ -69,6 +72,18 @@ func scene_path(id: String) -> String:
 
 func rot_step(id: String) -> int:
 	return int(get_def(id).get("rotation_increments_deg", 90))
+
+
+func is_solid(id: String) -> bool:
+	return bool(get_def(id).get("solid", true))
+
+
+func collision_height(id: String) -> float:
+	return float(get_def(id).get("collision_height", 1.0))
+
+
+func collision_scale(id: String) -> float:
+	return float(get_def(id).get("collision_scale", 0.92))
 
 
 func make_preview_texture(id: String) -> Texture2D:

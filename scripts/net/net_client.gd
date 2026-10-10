@@ -31,6 +31,8 @@ var _wanted := false
 var _hello_sent := false
 var _reconnect_at := 0.0
 var _op_counter := 0
+var _closing := false
+var _status := "idle" # idle|connecting|connected|closing|offline
 
 
 func _ready() -> void:
@@ -48,33 +50,55 @@ func _ready() -> void:
 
 func connect_to_server() -> void:
 	_wanted = true
+	_closing = false
 	_hello_sent = false
+	_status = "connecting"
 	if _ws != null:
 		_ws.close()
+		_ws = null
 	_ws = WebSocketPeer.new()
 	var url := "ws://%s:%d" % [host, port]
 	var err := _ws.connect_to_url(url)
 	if err != OK:
 		GameState.toast("Can't reach house server")
+		_ws = null
+		_status = "offline"
 		_reconnect_at = Time.get_ticks_msec() + 2000.0
 		return
 	print("[NET] connecting ", url)
 
 
 func disconnect_from_server() -> void:
+	## Intentional teardown for scene changes — no reconnect, no toast spam.
 	_wanted = false
+	_closing = true
+	_status = "closing"
+	_hello_sent = false
+	_reconnect_at = 0.0
 	if _ws:
 		_ws.close()
 	_ws = null
 	player_id = ""
 	session = ""
 	current_house = {}
+	current_role = ""
+	revision = 0
 	disconnected.emit()
+	_closing = false
+	_status = "idle"
+
+
+func is_transitioning() -> bool:
+	return _closing or _status == "closing"
+
+
+func connection_status() -> String:
+	return _status
 
 
 func _process(_delta: float) -> void:
 	if _ws == null:
-		if _wanted and Time.get_ticks_msec() >= _reconnect_at:
+		if _wanted and not _closing and Time.get_ticks_msec() >= _reconnect_at and _reconnect_at > 0.0:
 			connect_to_server()
 		return
 	_ws.poll()
@@ -82,6 +106,7 @@ func _process(_delta: float) -> void:
 	if state == WebSocketPeer.STATE_OPEN:
 		if not _hello_sent:
 			_hello_sent = true
+			_status = "connected"
 			connected.emit()
 			send(NetProtocol.C_HELLO, {
 				"dev_identity": dev_identity if dev_identity != "" else ("guest_" + str(Time.get_ticks_msec())),
@@ -92,6 +117,10 @@ func _process(_delta: float) -> void:
 	elif state == WebSocketPeer.STATE_CLOSED:
 		_ws = null
 		_hello_sent = false
+		if _closing or not _wanted:
+			_status = "idle"
+			return
+		_status = "offline"
 		disconnected.emit()
 		if _wanted:
 			_reconnect_at = Time.get_ticks_msec() + 1500.0

@@ -31,7 +31,7 @@ func update_transform(inst: Dictionary, origin: Vector3, floor_y: float) -> void
 
 func _rebuild(origin: Vector3, floor_y: float) -> void:
 	for c in get_children():
-		c.queue_free()
+		c.free()
 	if not FurnitureDB.has_id(def_id):
 		return
 	var def := FurnitureDB.get_def(def_id)
@@ -50,23 +50,45 @@ func _rebuild(origin: Vector3, floor_y: float) -> void:
 		_paint(node, str(def.get("paint", "wood")))
 		_mesh_host.add_child(node)
 
-	# Collision footprint box
-	_body = StaticBody3D.new()
-	_body.collision_layer = 1
-	_body.collision_mask = 0
-	add_child(_body)
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	var rfp := FurnitureGrid.rotate_footprint(fp, rotation_deg)
-	box.size = Vector3(float(rfp.x) * FurnitureGrid.CELL_SIZE * 0.92, 0.9, float(rfp.y) * FurnitureGrid.CELL_SIZE * 0.92)
-	shape.shape = box
-	shape.position.y = 0.45
-	_body.add_child(shape)
-	_body.set_meta("furniture_instance_id", instance_id)
+	# Primitive footprint collider — solid furniture blocks the player; rugs/bears stay walk-through.
+	if FurnitureDB.is_solid(def_id):
+		_body = StaticBody3D.new()
+		_body.collision_layer = 1
+		_body.collision_mask = 0
+		add_child(_body)
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		var rfp := FurnitureGrid.rotate_footprint(fp, rotation_deg)
+		var xz_scale := FurnitureDB.collision_scale(def_id)
+		var h := maxf(0.2, FurnitureDB.collision_height(def_id))
+		box.size = Vector3(
+			float(rfp.x) * FurnitureGrid.CELL_SIZE * xz_scale,
+			h,
+			float(rfp.y) * FurnitureGrid.CELL_SIZE * xz_scale
+		)
+		shape.shape = box
+		shape.position.y = h * 0.5
+		_body.add_child(shape)
+		_body.set_meta("furniture_instance_id", instance_id)
+	else:
+		# Non-solid still needs a tiny pick target for selection rays.
+		_body = StaticBody3D.new()
+		_body.collision_layer = 4
+		_body.collision_mask = 0
+		add_child(_body)
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		var rfp := FurnitureGrid.rotate_footprint(fp, rotation_deg)
+		box.size = Vector3(float(rfp.x) * FurnitureGrid.CELL_SIZE * 0.9, 0.08, float(rfp.y) * FurnitureGrid.CELL_SIZE * 0.9)
+		shape.shape = box
+		shape.position.y = 0.04
+		_body.add_child(shape)
+		_body.set_meta("furniture_instance_id", instance_id)
 
 	_select_box = MeshInstance3D.new()
 	var bm := BoxMesh.new()
-	bm.size = Vector3(float(rfp.x) * FurnitureGrid.CELL_SIZE, 0.05, float(rfp.y) * FurnitureGrid.CELL_SIZE)
+	var rfp2 := FurnitureGrid.rotate_footprint(fp, rotation_deg)
+	bm.size = Vector3(float(rfp2.x) * FurnitureGrid.CELL_SIZE, 0.05, float(rfp2.y) * FurnitureGrid.CELL_SIZE)
 	_select_box.mesh = bm
 	_select_box.position.y = 0.03
 	var mat := StandardMaterial3D.new()
@@ -82,6 +104,10 @@ func set_selected(on: bool) -> void:
 	selected = on
 	if _select_box:
 		_select_box.visible = on
+
+
+func has_blocking_collision() -> bool:
+	return FurnitureDB.is_solid(def_id) and _body != null
 
 
 func _paint(node: Node, paint: String) -> void:
@@ -105,7 +131,6 @@ func _paint(node: Node, paint: String) -> void:
 				sm.albedo_color = col if si == 0 else col.darkened(0.08)
 				sm.metallic = 0.0
 				sm.roughness = 0.9
-				# Keep default back-face culling; do not mirror voxel mesher winding bugs.
 				sm.cull_mode = BaseMaterial3D.CULL_BACK
 				mi.set_surface_override_material(si, sm)
 	for c in node.get_children():

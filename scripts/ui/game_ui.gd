@@ -3,9 +3,11 @@ class_name GameUi
 ## Kid-friendly Sunny Toy Meadow HUD — modular touch controls + polished chrome.
 
 var player: PlayerController
+## Legacy bools kept in sync with ExclusivePanels for older tests.
 var _inventory_open := false
 var _craft_open := false
 var _menu_open := false
+var panels := ExclusivePanels.new()
 
 ## Hotbar container (HBox of slot buttons) — kept for place_ui_regression compat.
 var hotbar: HBoxContainer
@@ -28,6 +30,10 @@ var top_row: HBoxContainer
 var bag_btn: Button
 var craft_top_btn: Button
 var menu_btn: Button
+var fly_btn: ActionButton
+var fly_up_btn: ActionButton
+var fly_down_btn: ActionButton
+var _fly_cluster: Control
 
 var _toast_timer := 0.0
 var _font: Font
@@ -46,14 +52,21 @@ func _ready() -> void:
 	_font = CozyTouchTheme.font()
 	_theme = CozyTouchTheme.build_theme()
 	_build_ui()
+	panels.all_closed.connect(_on_panels_all_closed)
+	panels.opened.connect(_on_panel_opened)
+	panels.closed.connect(_on_panel_closed)
 	GameState.creative_changed.connect(_on_creative)
+	GameState.flight_changed.connect(_on_flight)
 	GameState.inventory_changed.connect(refresh_hotbar)
 	GameState.hotbar_changed.connect(func(_i): refresh_hotbar())
 	GameState.message.connect(show_toast)
 	_on_creative(GameState.creative_mode)
+	_on_flight(GameState.flying)
 	_detect_touch()
 	get_viewport().size_changed.connect(_layout_hotbar)
+	get_viewport().size_changed.connect(_layout_fly_controls)
 	_layout_hotbar()
+	_layout_fly_controls()
 
 
 func bind_player(p: PlayerController) -> void:
@@ -186,13 +199,15 @@ func _build_ui() -> void:
 	toast_label.add_theme_color_override("font_color", COL_INK)
 	_root.add_child(toast_label)
 
-	# Touch controls under hotbar so hotbar taps always win.
+	# Touch under top-bar chips + hotbar so those taps never spawn the stick.
 	touch_controls = TouchControls.new()
 	touch_controls.name = "TouchControls"
 	touch_layer = touch_controls
 	_root.add_child(touch_controls)
 	move_stick = touch_controls.joystick
 	look_pad = touch_controls.look_area
+	# Raise top bar above the left movement zone (zone excludes it too).
+	_root.move_child(top_bar, touch_controls.get_index() + 1)
 
 	hotbar_tray = TouchHotbar.new()
 	hotbar_tray.name = "HotbarTray"
@@ -206,7 +221,6 @@ func _build_ui() -> void:
 	hotbar = hotbar_tray.slots_box
 
 	inventory_panel = _make_panel(_root, "Bag", Vector2(420, 300))
-	inventory_panel.visible = false
 	var inv_v: VBoxContainer = inventory_panel.get_node("Margin/VBox")
 	var grid := GridContainer.new()
 	grid.name = "Grid"
@@ -214,14 +228,12 @@ func _build_ui() -> void:
 	inv_v.add_child(grid)
 
 	craft_panel = _make_panel(_root, "Craft", Vector2(460, 340))
-	craft_panel.visible = false
 	var craft_v: VBoxContainer = craft_panel.get_node("Margin/VBox")
 	craft_list = VBoxContainer.new()
 	craft_list.name = "List"
 	craft_v.add_child(craft_list)
 
 	menu_panel = _make_panel(_root, "Menu", Vector2(360, 400))
-	menu_panel.visible = false
 	var menu_v: VBoxContainer = menu_panel.get_node("Margin/VBox")
 	for spec in [
 		["Save", save_game],
@@ -238,7 +250,6 @@ func _build_ui() -> void:
 		menu_v.add_child(b)
 
 	confirm_panel = _make_panel(_root, "Reset world?", Vector2(380, 220))
-	confirm_panel.visible = false
 	var conf_v: VBoxContainer = confirm_panel.get_node("Margin/VBox")
 	var q := Label.new()
 	q.text = "Clear all blocks?"
@@ -258,10 +269,19 @@ func _build_ui() -> void:
 	_theme_button(no, Vector2(120, 52), COL_GREEN)
 	no.pressed.connect(confirm_reset_no)
 	row.add_child(no)
+	panels.register("inventory", inventory_panel)
+	panels.register("craft", craft_panel)
+	panels.register("menu", menu_panel)
+	panels.register("confirm", confirm_panel)
+	_build_fly_controls()
 
 
 func _layout_hotbar() -> void:
 	_layout_top_bar()
+	ui_layout_hotbar_for_flight()
+
+
+func ui_layout_hotbar_for_flight() -> void:
 	if hotbar_tray == null:
 		return
 	var vp := get_viewport().get_visible_rect().size
@@ -271,14 +291,14 @@ func _layout_hotbar() -> void:
 	var slot := (64.0 if phone_like else 72.0) * scale
 	hotbar_tray.set_slot_size(slot)
 	var width := Inventory.HOTBAR_SIZE * (slot + 8.0) + 36.0
+	# On wide tablets leave side gutters so the bar does not invade Jump/Fly.
+	var max_w := vp.x * (0.52 if phone_like else 0.42)
+	width = minf(width, max_w)
 	var height := slot + 28.0
 	# Lift above home-indicator / action overlap; stay between joystick and actions.
 	var bottom := 18.0
-	var safe_env := OS.get_environment("COZY_SAFE_INSET")
-	if safe_env != "":
-		var parts := safe_env.split(",")
-		if parts.size() == 4:
-			bottom = maxf(bottom, float(parts[3]) + 8.0)
+	var inset := _safe_insets()
+	bottom = maxf(bottom, inset.w + 8.0)
 	hotbar_tray.offset_left = -width * 0.5
 	hotbar_tray.offset_right = width * 0.5
 	hotbar_tray.offset_top = -height - bottom
@@ -356,6 +376,7 @@ func _detect_touch() -> void:
 	if touch_controls:
 		move_stick = touch_controls.joystick
 		look_pad = touch_controls.look_area
+	_layout_fly_controls()
 
 
 func _process(delta: float) -> void:
@@ -417,20 +438,40 @@ func _build_craft_list() -> void:
 
 
 func toggle_inventory() -> void:
-	_inventory_open = not _inventory_open
-	inventory_panel.visible = _inventory_open
-	if _inventory_open:
+	if panels.toggle("inventory"):
 		_refresh_inventory_panel()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	else:
-		_restore_play_mouse()
+
+
+func _sync_panel_flags() -> void:
+	_inventory_open = panels.is_open("inventory")
+	_craft_open = panels.is_open("craft")
+	_menu_open = panels.is_open("menu")
+
+
+func _on_panel_opened(id: String) -> void:
+	_sync_panel_flags()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if id == "inventory":
+		_refresh_inventory_panel()
+	elif id == "craft":
+		_build_craft_list()
+
+
+func _on_panel_closed(_id: String) -> void:
+	_sync_panel_flags()
+
+
+func _on_panels_all_closed() -> void:
+	_sync_panel_flags()
+	_restore_play_mouse()
 
 
 func _restore_play_mouse() -> void:
 	## Return to captured look after closing Bag/Craft/Menu (desktop place/break need it).
-	if _inventory_open or _craft_open or _menu_open or confirm_panel.visible:
+	if panels.is_open():
 		return
-	if touch_layer.visible:
+	if touch_layer and touch_layer.visible:
 		return
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -453,22 +494,168 @@ func _refresh_inventory_panel() -> void:
 
 
 func toggle_craft() -> void:
-	_craft_open = not _craft_open
-	craft_panel.visible = _craft_open
-	if _craft_open:
+	if panels.toggle("craft"):
 		_build_craft_list()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	else:
-		_restore_play_mouse()
 
 
 func toggle_menu() -> void:
-	_menu_open = not _menu_open
-	menu_panel.visible = _menu_open
-	if _menu_open:
+	if panels.toggle("menu"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _build_fly_controls() -> void:
+	_fly_cluster = Control.new()
+	_fly_cluster.name = "FlyControls"
+	_fly_cluster.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fly_cluster.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_root.add_child(_fly_cluster)
+	fly_btn = ActionButton.new()
+	fly_btn.show_label = true
+	fly_btn.configure("FlyButton", COL_SKY, "res://assets/ui/icons/icon_fly.png", "Fly", 0.0)
+	fly_btn.pressed.connect(func(): GameState.toggle_flying())
+	fly_up_btn = ActionButton.new()
+	fly_up_btn.show_label = true
+	fly_up_btn.configure("FlyUpButton", COL_GREEN, "res://assets/ui/icons/icon_fly_up.png", "Up", 0.0)
+	fly_down_btn = ActionButton.new()
+	fly_down_btn.show_label = true
+	fly_down_btn.configure("FlyDownButton", COL_PINK, "res://assets/ui/icons/icon_fly_down.png", "Down", 0.0)
+	fly_up_btn.action_pressed.connect(func(): if player: player.set_touch_fly_vertical(1.0))
+	fly_up_btn.action_released.connect(func(): if player: player.set_touch_fly_vertical(0.0))
+	fly_down_btn.action_pressed.connect(func(): if player: player.set_touch_fly_vertical(-1.0))
+	fly_down_btn.action_released.connect(func(): if player: player.set_touch_fly_vertical(0.0))
+	for b in [fly_btn, fly_up_btn, fly_down_btn]:
+		_fly_cluster.add_child(b)
+
+
+func _safe_insets() -> Vector4:
+	## left, top, right, bottom — matches TouchControls COZY_SAFE_INSET convention.
+	var inset := Vector4(12, 8, 12, 12)
+	var env := OS.get_environment("COZY_SAFE_INSET")
+	if env != "":
+		var parts := env.split(",")
+		if parts.size() == 4:
+			return Vector4(float(parts[0]), float(parts[1]), float(parts[2]), float(parts[3]))
+	return inset
+
+
+func _layout_fly_controls() -> void:
+	if _fly_cluster == null or fly_btn == null:
+		return
+	var show_touch := touch_layer != null and touch_layer.visible
+	var creative := GameState.creative_mode
+	_fly_cluster.visible = show_touch and creative
+	var actions: TouchActionCluster = touch_controls.actions if touch_controls else null
+	if not _fly_cluster.visible:
+		if actions and actions.has_method("set_flight_column_inset"):
+			actions.set_flight_column_inset(0.0)
+		return
+	# Refresh touch layout first so Jump/joystick rects are current.
+	if touch_controls and touch_controls.has_method("_on_viewport_resized"):
+		touch_controls._on_viewport_resized()
+	actions = touch_controls.actions if touch_controls else null
+	if actions == null or actions.jump_btn == null:
+		return
+
+	var vp := get_viewport().get_visible_rect().size
+	var short_side := minf(vp.x, vp.y)
+	var scale := clampf(short_side / 828.0, 0.85, 1.45)
+	var sz := 72.0 * scale
+	var gap := 8.0 * scale
+	var flying := GameState.flying
+	var inset := _safe_insets()
+	var phone_like := short_side < 900.0 or (vp.x / maxf(vp.y, 1.0) > 1.8)
+	# Always reserve a column left of Jump for Fly (and Up/Down while flying).
+	var reserve := sz + gap
+	if actions.has_method("set_flight_column_inset"):
+		actions.set_flight_column_inset(reserve)
+	var base_aw := (230.0 if phone_like else 270.0) * scale
+	var cluster_w := base_aw + reserve
+	var ah := (260.0 if phone_like else 310.0) * scale
+	# Extra height when flying so Land above Up stays inside the cluster band.
+	if flying:
+		ah = maxf(ah, sz * 3.0 + gap * 2.0 + 24.0 * scale)
+	# Keep the whole right cluster (Jump + flight column) above the hotbar.
+	ui_layout_hotbar_for_flight()
+	var bottom_clear := 4.0 + inset.w
+	if hotbar_tray and hotbar_tray.visible:
+		var hot_r: Rect2 = hotbar_tray.get_global_rect()
+		# Distance from viewport bottom to hotbar top, plus a kid-friendly gap.
+		bottom_clear = maxf(bottom_clear, (vp.y - hot_r.position.y) + 12.0 * scale)
+	# Down sits below Jump; reserve that overhang so it clears the hotbar.
+	if flying:
+		var jump_h := actions.primary_size
+		var column_h := sz * 2.0 + gap
+		var overhang := maxf(0.0, column_h - jump_h)
+		bottom_clear += overhang + 8.0 * scale
+	actions.custom_minimum_size = Vector2(cluster_w, ah)
+	actions.anchor_left = 1.0
+	actions.anchor_top = 1.0
+	actions.anchor_right = 1.0
+	actions.anchor_bottom = 1.0
+	actions.offset_right = -4.0 - inset.z
+	actions.offset_bottom = -bottom_clear
+	actions.offset_left = actions.offset_right - cluster_w
+	actions.offset_top = actions.offset_bottom - ah
+	if actions.has_method("_layout"):
+		actions._layout()
+
+	fly_up_btn.visible = flying
+	fly_down_btn.visible = flying
+	_size_fly_btn(fly_btn, sz)
+	_size_fly_btn(fly_up_btn, sz)
+	_size_fly_btn(fly_down_btn, sz)
+
+	var jump_r := actions.jump_btn.get_global_rect()
+	# Column immediately left of Jump — Fly/Land always; Up/Down while flying.
+	var col_x := jump_r.position.x - gap - sz
+	if flying:
+		var up_y := jump_r.position.y
+		var down_y := up_y + sz + gap
+		fly_up_btn.global_position = Vector2(col_x, up_y)
+		fly_down_btn.global_position = Vector2(col_x, down_y)
+		# Land toggle above Up — green on-state.
+		fly_btn.global_position = Vector2(col_x, up_y - gap - sz)
 	else:
-		_restore_play_mouse()
+		# Fly toggle beside Jump (sky off-state) — never on the left screen edge.
+		fly_btn.global_position = Vector2(col_x, jump_r.position.y + (jump_r.size.y - sz) * 0.5)
+
+	# Keep every flight control inside the safe rectangle.
+	var safe := Rect2(inset.x, inset.y, vp.x - inset.x - inset.z, vp.y - inset.y - inset.w)
+	for btn in [fly_btn, fly_up_btn, fly_down_btn]:
+		if btn == null or not btn.visible:
+			continue
+		var r: Rect2 = btn.get_global_rect()
+		var pos: Vector2 = r.position
+		pos.x = clampf(pos.x, safe.position.x, safe.end.x - r.size.x)
+		pos.y = clampf(pos.y, safe.position.y, safe.end.y - r.size.y)
+		btn.global_position = pos
+		if btn.has_method("_layout_children"):
+			btn._layout_children()
+		if btn.has_method("_apply_style"):
+			btn._apply_style(false)
+
+
+func _size_fly_btn(btn: ActionButton, sz: float) -> void:
+	if btn == null:
+		return
+	btn.button_size = sz
+	btn.custom_minimum_size = Vector2(sz, sz)
+	btn.size = Vector2(sz, sz)
+
+
+func flight_control_rects() -> Dictionary:
+	## Global rects for layout regression (empty when flight HUD hidden).
+	var out := {}
+	if _fly_cluster == null or not _fly_cluster.visible:
+		return out
+	if fly_btn and fly_btn.visible:
+		out["fly"] = fly_btn.get_global_rect()
+	if fly_up_btn and fly_up_btn.visible:
+		out["up"] = fly_up_btn.get_global_rect()
+	if fly_down_btn and fly_down_btn.visible:
+		out["down"] = fly_down_btn.get_global_rect()
+	return out
 
 
 func _on_creative(enabled: bool) -> void:
@@ -479,6 +666,22 @@ func _on_creative(enabled: bool) -> void:
 	mode_btn.add_theme_stylebox_override("hover", _sb(bg.lightened(0.08), 18, Color(1, 1, 1, 0.95), 3))
 	mode_btn.add_theme_stylebox_override("pressed", _sb(bg.darkened(0.1), 18, COL_INK, 4))
 	refresh_hotbar()
+	_layout_fly_controls()
+
+
+func _on_flight(enabled: bool) -> void:
+	if fly_btn:
+		# Obvious on/off: green Land vs sky Fly + label swap.
+		fly_btn.configure(
+			"FlyButton",
+			COL_GREEN if enabled else COL_SKY,
+			"res://assets/ui/icons/icon_fly.png",
+			"Land" if enabled else "Fly",
+			0.0
+		)
+	if player and not enabled:
+		player.set_touch_fly_vertical(0.0)
+	_layout_fly_controls()
 
 
 func show_toast(text: String) -> void:
@@ -487,12 +690,12 @@ func show_toast(text: String) -> void:
 
 
 func request_reset() -> void:
-	confirm_panel.visible = true
+	panels.open("confirm")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func confirm_reset_yes() -> void:
-	confirm_panel.visible = false
+	panels.close("confirm")
 	if player:
 		player.world.reset_world()
 		# Re-dress meadow props after voxel reset
@@ -500,10 +703,11 @@ func confirm_reset_yes() -> void:
 		dresser.dress(player.world.get_parent())
 		player.reset_to_spawn()
 		GameState.toast("World reset!")
+	_restore_play_mouse()
 
 
 func confirm_reset_no() -> void:
-	confirm_panel.visible = false
+	panels.close("confirm")
 	_restore_play_mouse()
 
 
@@ -525,4 +729,5 @@ func load_game() -> void:
 
 func go_to_house() -> void:
 	## Phase 2: leave the meadow sandbox for the third-person house scene.
-	get_tree().change_scene_to_file("res://scenes/house/house.tscn")
+	panels.close_all()
+	SceneFlow.go_to_house(player)

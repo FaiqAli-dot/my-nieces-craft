@@ -1,11 +1,16 @@
 extends CharacterBody3D
 class_name PlayerController
-## First-person player with desktop + touch movement.
+## First-person player with desktop + touch movement and creative flight.
 
 const SPEED := 5.5
+const FLY_SPEED := 6.5
 const JUMP_VELOCITY := 6.2
 const MOUSE_SENS := 0.0024
 const REACH := 6.0
+## Standing height ~1.8 blocks (Minecraft-like) so capsule matches voxel doors.
+const CAPSULE_HEIGHT := 1.8
+const CAPSULE_RADIUS := 0.38
+const EYE_HEIGHT := 1.62
 
 @export var world_path: NodePath
 @export var ui_path: NodePath
@@ -16,6 +21,7 @@ var crafting := CraftingSystem.new()
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var touch_move := Vector2.ZERO
 var touch_look := Vector2.ZERO
+var touch_fly_vertical := 0.0
 var look_yaw := 0.0
 var look_pitch := 0.0
 var _break_held := false
@@ -26,6 +32,7 @@ var _place_held := false
 @onready var highlight: MeshInstance3D = $BlockHighlight
 @onready var place_preview: MeshInstance3D = $PlacePreview
 @onready var ray: RayCast3D = $Head/Camera3D/RayCast3D
+@onready var collision_shape: CollisionShape3D = $CollisionShape3D
 
 var world: VoxelWorld
 var ui: CanvasLayer
@@ -33,13 +40,37 @@ var ui: CanvasLayer
 func _ready() -> void:
 	world = get_node(world_path)
 	ui = get_node(ui_path)
+	_apply_body_proportions()
 	ray.target_position = Vector3(0, 0, -REACH)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_setup_highlights()
-	global_position = world.spawn_position()
+	floor_snap_length = 0.2
+	safe_margin = 0.08
+	if SceneFlow.has_meadow_return:
+		global_position = SceneFlow.meadow_return_pos
+		look_yaw = SceneFlow.meadow_return_yaw
+		look_pitch = SceneFlow.meadow_return_pitch
+		SceneFlow.clear_meadow_return()
+	else:
+		global_position = world.spawn_position()
 	if ui and ui.has_method("bind_player"):
 		# GameUI may not have finished _ready yet depending on scene order
 		ui.call_deferred("bind_player", self)
+	if not GameState.flight_changed.is_connected(_on_flight_changed):
+		GameState.flight_changed.connect(_on_flight_changed)
+	if not GameState.creative_changed.is_connected(_on_creative_changed):
+		GameState.creative_changed.connect(_on_creative_changed)
+
+
+func _apply_body_proportions() -> void:
+	var capsule := collision_shape.shape as CapsuleShape3D
+	if capsule == null:
+		capsule = CapsuleShape3D.new()
+		collision_shape.shape = capsule
+	capsule.radius = CAPSULE_RADIUS
+	capsule.height = CAPSULE_HEIGHT
+	collision_shape.position = Vector3(0.0, CAPSULE_HEIGHT * 0.5, 0.0)
+	head.position = Vector3(0.0, EYE_HEIGHT, 0.0)
 
 
 func _setup_highlights() -> void:
@@ -62,6 +93,18 @@ func _setup_highlights() -> void:
 	pmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	place_preview.material_override = pmat
 	place_preview.visible = false
+
+
+func _on_flight_changed(_enabled: bool) -> void:
+	if not GameState.flying:
+		# Drop out of hover; gravity resumes next physics frame.
+		if velocity.y > 0.0:
+			velocity.y = minf(velocity.y, 1.5)
+
+
+func _on_creative_changed(enabled: bool) -> void:
+	if not enabled and GameState.flying:
+		GameState.set_flying(false)
 
 
 func _input(event: InputEvent) -> void:
@@ -90,6 +133,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		reset_to_spawn()
 	if event.is_action_pressed("toggle_creative"):
 		GameState.toggle_creative()
+	if event.is_action_pressed("toggle_flight"):
+		GameState.toggle_flying()
 	for i in 8:
 		if event.is_action_pressed("hotbar_%d" % (i + 1)):
 			inventory.select(i)
@@ -112,6 +157,18 @@ func _physics_process(delta: float) -> void:
 	head.rotation.y = look_yaw
 	camera.rotation.x = look_pitch
 
+	var flying := GameState.flying and GameState.creative_mode
+	if flying:
+		_physics_fly(delta)
+	else:
+		_physics_walk(delta)
+
+	move_and_slide()
+	_clamp_to_boundary()
+	_update_targeting()
+
+
+func _physics_walk(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 
@@ -129,9 +186,26 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("jump") and is_on_floor():
 		velocity.y = JUMP_VELOCITY
 
-	move_and_slide()
-	_clamp_to_boundary()
-	_update_targeting()
+
+func _physics_fly(_delta: float) -> void:
+	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	if touch_move != Vector2.ZERO:
+		input_dir = touch_move
+	var direction := (head.transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+	if direction:
+		velocity.x = direction.x * FLY_SPEED
+		velocity.z = direction.z * FLY_SPEED
+	else:
+		velocity.x = move_toward(velocity.x, 0, FLY_SPEED)
+		velocity.z = move_toward(velocity.z, 0, FLY_SPEED)
+
+	var vert := touch_fly_vertical
+	if Input.is_action_pressed("jump"):
+		vert += 1.0
+	if Input.is_action_pressed("fly_down"):
+		vert -= 1.0
+	vert = clampf(vert, -1.0, 1.0)
+	velocity.y = vert * FLY_SPEED
 
 
 func _clamp_to_boundary() -> void:
@@ -141,6 +215,8 @@ func _clamp_to_boundary() -> void:
 	if p.y < -5.0:
 		reset_to_spawn()
 		return
+	if GameState.flying:
+		p.y = clampf(p.y, 0.0, world.boundary_max.y + 8.0)
 	global_position = p
 
 
@@ -152,7 +228,7 @@ func reset_to_spawn() -> void:
 
 func player_aabb() -> AABB:
 	# Approximate standing capsule
-	return AABB(global_position + Vector3(-0.3, 0.0, -0.3), Vector3(0.6, 1.7, 0.6))
+	return AABB(global_position + Vector3(-CAPSULE_RADIUS, 0.0, -CAPSULE_RADIUS), Vector3(CAPSULE_RADIUS * 2.0, CAPSULE_HEIGHT, CAPSULE_RADIUS * 2.0))
 
 
 func _update_targeting() -> void:
@@ -254,7 +330,13 @@ func add_touch_look(v: Vector2) -> void:
 	touch_look += v
 
 
+func set_touch_fly_vertical(v: float) -> void:
+	touch_fly_vertical = clampf(v, -1.0, 1.0)
+
+
 func touch_jump() -> void:
+	if GameState.flying and GameState.creative_mode:
+		return
 	if is_on_floor():
 		velocity.y = JUMP_VELOCITY
 
