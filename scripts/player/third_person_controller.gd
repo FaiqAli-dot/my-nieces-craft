@@ -18,7 +18,7 @@ const TURN_SPEED := 10.0
 const MODEL_SCALE := 0.9
 const CAPSULE_HEIGHT := 1.8
 const CAPSULE_RADIUS := 0.38
-## Kenney / UnityGLTF characters face +Z; Godot forward is −Z. Yaw from
+## CozyCharacter faces +Z; Godot forward is −Z. Yaw from
 ## `visual_yaw_for_move_dir` maps travel direction onto that +Z mesh axis.
 
 signal moved(pos: Vector3, yaw: float, moving: bool)
@@ -37,7 +37,6 @@ static func visual_yaw_for_move_dir(direction: Vector3) -> float:
 static func visual_forward_from_yaw(yaw: float) -> Vector3:
 	return Basis(Vector3.UP, yaw) * Vector3(0.0, 0.0, 1.0)
 
-@export var character_scene: String = "res://assets/models/characters/character-male-a.glb"
 @export var enable_run: bool = true
 
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -49,8 +48,7 @@ var cam_distance := CAM_DISTANCE_DEFAULT
 var placement_locked := false
 var ui_blocks_capture := false
 
-var _model: Node3D
-var _anim: AnimationPlayer
+var character: CozyCharacter
 var _busy := false
 var _last_net_t := 0.0
 var _was_moving := false
@@ -86,51 +84,9 @@ func _apply_body_proportions() -> void:
 func _spawn_model() -> void:
 	for c in model_root.get_children():
 		c.queue_free()
-	var candidates: PackedStringArray = [
-		character_scene,
-		"res://assets/models/characters/character-male-a.glb",
-		"res://assets/models/characters/character-a.glb",
-		"res://assets/models/characters/character-b.glb",
-	]
-	_model = null
-	for path in candidates:
-		if path == "" or not ResourceLoader.exists(path):
-			continue
-		var packed := load(path)
-		if packed == null:
-			continue
-		_model = packed.instantiate()
-		if _model:
-			character_scene = path
-			break
-	if _model == null:
-		push_warning("ThirdPersonController: no character mesh could be loaded")
-		return
-	_model.scale = Vector3.ONE * MODEL_SCALE
-	model_root.add_child(_model)
-	_anim = _find_anim(_model)
-	if _anim:
-		_play_anim("idle")
-
-
-func _find_anim(n: Node) -> AnimationPlayer:
-	if n is AnimationPlayer:
-		return n
-	for c in n.get_children():
-		var f := _find_anim(c)
-		if f:
-			return f
-	return null
-
-
-func _play_anim(name: String) -> void:
-	if _anim == null:
-		return
-	if _anim.has_animation(name):
-		if _anim.current_animation != name:
-			_anim.play(name, 0.2)
-	elif name == "sprint" and _anim.has_animation("walk"):
-		_anim.play("walk", 0.2)
+	character = CozyCharacter.new()
+	character.name = "Character"
+	model_root.add_child(character)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -188,18 +144,18 @@ func _physics_process(delta: float) -> void:
 		# Face travel direction (Kenney +Z), not camera-forward alone.
 		var target_yaw := visual_yaw_for_move_dir(direction)
 		model_root.rotation.y = lerp_angle(model_root.rotation.y, target_yaw, clampf(TURN_SPEED * delta, 0, 1))
-		_play_anim("sprint" if running else "walk")
 		_was_moving = true
 	else:
 		velocity.x = move_toward(velocity.x, 0, speed)
 		velocity.z = move_toward(velocity.z, 0, speed)
-		_play_anim("idle")
 		_was_moving = false
 
 	if not placement_locked and Input.is_action_just_pressed("jump") and is_on_floor():
 		velocity.y = JUMP_VELOCITY
 
 	move_and_slide()
+	if character:
+		character.set_locomotion(Vector2(velocity.x, velocity.z).length(), is_on_floor(), velocity.y, running)
 	# Soft rescue if somehow below the floor slab.
 	if global_position.y < -2.0:
 		global_position = spawn_rescue_position()

@@ -33,6 +33,7 @@ var bag_btn: Button
 var craft_top_btn: Button
 var menu_btn: Button
 var fly_btn: ActionButton
+var view_btn: Button
 var fly_up_btn: ActionButton
 var fly_down_btn: ActionButton
 var _fly_cluster: Control
@@ -275,7 +276,7 @@ func _build_ui() -> void:
 	craft_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	craft_scroll.add_child(craft_list)
 
-	menu_panel = _make_panel(_root, "Menu", Vector2(380, 520))
+	menu_panel = _make_panel(_root, "Menu", Vector2(380, 580))
 	var menu_v: VBoxContainer = menu_panel.get_node("Margin/VBox")
 	# New World first — kids need an obvious way back to Creative / Survival.
 	var new_world_btn := Button.new()
@@ -300,6 +301,16 @@ func _build_ui() -> void:
 		_theme_button(b, Vector2(280, 52), COL_ACCENT if spec[0] != "My House" else COL_SKY)
 		b.pressed.connect(spec[1])
 		menu_v.add_child(b)
+	view_btn = Button.new()
+	view_btn.name = "ViewButton"
+	_theme_button(view_btn, Vector2(280, 52), COL_GREEN)
+	view_btn.pressed.connect(func():
+		if player:
+			player.toggle_view()
+		_refresh_view_btn())
+	menu_v.add_child(view_btn)
+	menu_v.move_child(view_btn, menu_v.get_child_count() - 2)
+	_refresh_view_btn()
 
 	confirm_panel = _make_panel(_root, "Reset world?", Vector2(380, 220))
 	var conf_v: VBoxContainer = confirm_panel.get_node("Margin/VBox")
@@ -672,6 +683,14 @@ func toggle_craft() -> void:
 func toggle_menu() -> void:
 	if panels.toggle("menu"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		_refresh_view_btn()
+
+
+func _refresh_view_btn() -> void:
+	if view_btn == null:
+		return
+	var tp: bool = player.third_person if player else bool(Settings.get_value("third_person"))
+	view_btn.text = "Camera: Behind (V)" if tp else "Camera: Eye (V)"
 
 
 func _build_fly_controls() -> void:

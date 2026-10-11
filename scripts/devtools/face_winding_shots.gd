@@ -15,6 +15,7 @@ func _ready() -> void:
 func _capture() -> void:
 	var main := get_parent()
 	var player: PlayerController = main.get_node("Player")
+	player.set_third_person(false) # aims assume eye-level rays
 	var world: VoxelWorld = main.get_node("VoxelWorld")
 	var ui: GameUi = main.get_node("GameUI")
 	ui.touch_layer.visible = false

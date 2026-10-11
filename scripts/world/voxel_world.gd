@@ -16,6 +16,8 @@ var boundary_max := Vector3(WORLD_CHUNKS.x * VoxelChunk.SIZE - 2, WORLD_CHUNKS.y
 
 var chunk_root: Node3D
 var drop_root: Node3D
+## Set by deserialize() when a v1 save's wood trunks were converted to logs.
+var migrated_tree_logs := 0
 
 
 func _ready() -> void:
@@ -88,6 +90,34 @@ func set_block(wx: int, wy: int, wz: int, id: int, rebuild: bool = true) -> void
 
 
 func _rebuild_affected(wx: int, wy: int, wz: int) -> void:
+	_rebuild_keys(_affected_keys(wx, wy, wz))
+
+
+## Rebuilds each chunk touched by `cells` (plus border neighbours) exactly once.
+func rebuild_cells(cells: Array) -> void:
+	var keys: Array[Vector3i] = []
+	var seen := {}
+	for c in cells:
+		var p: Vector3i = c
+		for k in _affected_keys(p.x, p.y, p.z):
+			if not seen.has(k):
+				seen[k] = true
+				keys.append(k)
+	_rebuild_keys(keys)
+
+
+func _rebuild_keys(keys: Array[Vector3i]) -> void:
+	for key in keys:
+		if key.x < 0 or key.y < 0 or key.z < 0:
+			continue
+		if key.x >= WORLD_CHUNKS.x or key.y >= WORLD_CHUNKS.y or key.z >= WORLD_CHUNKS.z:
+			continue
+		var chunk := ensure_chunk(key)
+		chunk.dirty = true
+		chunk.rebuild_mesh()
+
+
+func _affected_keys(wx: int, wy: int, wz: int) -> Array[Vector3i]:
 	var keys: Array[Vector3i] = [world_to_chunk(wx, wy, wz)]
 	# Neighbor chunks if on border
 	var local_x := wx % VoxelChunk.SIZE
@@ -111,14 +141,7 @@ func _rebuild_affected(wx: int, wy: int, wz: int) -> void:
 		keys.append(world_to_chunk(wx, wy, wz - 1))
 	if local_z == VoxelChunk.SIZE - 1:
 		keys.append(world_to_chunk(wx, wy, wz + 1))
-	for key in keys:
-		if key.x < 0 or key.y < 0 or key.z < 0:
-			continue
-		if key.x >= WORLD_CHUNKS.x or key.y >= WORLD_CHUNKS.y or key.z >= WORLD_CHUNKS.z:
-			continue
-		var chunk := ensure_chunk(key)
-		chunk.dirty = true
-		chunk.rebuild_mesh()
+	return keys
 
 
 func generate_flat_world() -> void:
@@ -149,8 +172,9 @@ func generate_flat_world() -> void:
 					id = dirt_id
 				set_block(x, y, z, id, false)
 	_dress_meadow()
-	_plant_voxel_trees()
 	_place_stone_outcrop()
+	_place_boulders()
+	_plant_voxel_trees()
 	clear_drops()
 	# Mark all dirty and rebuild once
 	for key in chunks.keys():
@@ -316,22 +340,29 @@ func can_place_at(wx: int, wy: int, wz: int, player_aabb: AABB) -> bool:
 
 func break_block(wx: int, wy: int, wz: int) -> String:
 	## Creative / legacy helper: always awards the normal drop into caller inventory.
-	var id := get_block(wx, wy, wz)
-	if id == 0 or not BlockDB.is_breakable(id):
-		return ""
-	var drop := BlockDB.get_drop(id)
-	set_block(wx, wy, wz, 0, true)
-	return drop
+	return str(harvest_block(wx, wy, wz, "", false).get("drop", ""))
 
 
 func break_block_survival(wx: int, wy: int, wz: int, held_item: String) -> String:
 	## Removes the block; returns drop item id (may be empty if wrong tool).
+	return str(harvest_block(wx, wy, wz, held_item, true).get("drop", ""))
+
+
+## Player break entry point. Natural tree logs fell every connected log above
+## and decay orphaned leaves (no floating canopies).
+## Returns {"drop": item, "count": n, "felled": bool, "block": block_name}.
+func harvest_block(wx: int, wy: int, wz: int, held_item: String, survival: bool) -> Dictionary:
 	var id := get_block(wx, wy, wz)
 	if id == 0 or not BlockDB.is_breakable(id):
-		return ""
-	var drop := MiningRules.drop_for_break(id, held_item)
+		return {"drop": "", "count": 0, "felled": false, "block": ""}
+	var block_name := BlockDB.get_block_name(id)
+	var drop := MiningRules.drop_for_break(id, held_item) if survival else BlockDB.get_drop(id)
+	if TreeGen.is_tree_log(id):
+		var felled := TreeGen.fell(self, Vector3i(wx, wy, wz))
+		var logs := int(felled.get("logs", 1))
+		return {"drop": drop, "count": logs if drop != "" else 0, "felled": logs > 1, "block": block_name}
 	set_block(wx, wy, wz, 0, true)
-	return drop
+	return {"drop": drop, "count": 1 if drop != "" else 0, "felled": false, "block": block_name}
 
 
 func spawn_drop(item: String, count: int, at: Vector3) -> void:
@@ -425,41 +456,32 @@ func deserialize_drops(data) -> void:
 
 
 func _plant_voxel_trees() -> void:
-	## Harvestable voxel oaks near spawn (decorative GLB trees remain separate).
-	var spots: Array[Vector2i] = [
-		Vector2i(26, 30),
-		Vector2i(38, 26),
-		Vector2i(30, 40),
-		Vector2i(42, 38),
-		Vector2i(20, 34),
-		Vector2i(48, 32),
-		Vector2i(24, 44),
-		Vector2i(36, 20),
+	## Every tree inside the playable area is a harvestable voxel tree.
+	var spots := [
+		[26, 30, TreeGen.Kind.OAK], [38, 26, TreeGen.Kind.OAK], [30, 40, TreeGen.Kind.BIRCH],
+		[42, 38, TreeGen.Kind.OAK], [20, 34, TreeGen.Kind.BIRCH], [48, 32, TreeGen.Kind.PINE],
+		[24, 44, TreeGen.Kind.OAK], [36, 20, TreeGen.Kind.BIRCH],
+		[18, 26, TreeGen.Kind.OAK], [16, 30, TreeGen.Kind.PINE], [14, 34, TreeGen.Kind.BIRCH],
+		[46, 26, TreeGen.Kind.BIRCH], [50, 38, TreeGen.Kind.PINE], [58, 26, TreeGen.Kind.PINE],
+		[18, 46, TreeGen.Kind.OAK], [24, 50, TreeGen.Kind.PINE], [10, 28, TreeGen.Kind.OAK],
+		[56, 44, TreeGen.Kind.PINE], [8, 48, TreeGen.Kind.OAK], [12, 12, TreeGen.Kind.PINE],
+		[54, 54, TreeGen.Kind.OAK], [30, 56, TreeGen.Kind.BIRCH], [44, 52, TreeGen.Kind.OAK],
 	]
 	for s in spots:
-		_grow_oak(s.x, s.y)
+		var x: int = s[0]
+		var z: int = s[1]
+		var base := surface_y(x, z) + 1
+		if TreeGen.grow(self, int(s[2]), x, base, z):
+			set_block(x, base - 1, z, BlockDB.get_id("dirt"), false)
 
 
-func _grow_oak(cx: int, cz: int) -> void:
-	var wood_id := BlockDB.get_id("wood")
-	var leaves_id := BlockDB.get_id("leaves")
-	var trunk_h := 4
-	for y in range(1, trunk_h + 1):
-		set_block(cx, GROUND_Y + y, cz, wood_id, false)
-	var top := GROUND_Y + trunk_h
-	for dy in range(-1, 2):
-		for dx in range(-2, 3):
-			for dz in range(-2, 3):
-				if absi(dx) == 2 and absi(dz) == 2:
-					continue
-				var lx := cx + dx
-				var ly := top + dy
-				var lz := cz + dz
-				if get_block(lx, ly, lz) == 0:
-					set_block(lx, ly, lz, leaves_id, false)
-	set_block(cx, top + 2, cz, leaves_id, false)
-	# Ensure grass under trunk
-	set_block(cx, GROUND_Y, cz, BlockDB.get_id("dirt"), false)
+## Highest solid block in the column (or GROUND_Y if empty).
+func surface_y(x: int, z: int) -> int:
+	for y in range(world_size_blocks().y - 1, -1, -1):
+		var id := get_block(x, y, z)
+		if id != 0 and not TreeGen.is_tree_leaves(id):
+			return y
+	return GROUND_Y
 
 
 func _place_stone_outcrop() -> void:
@@ -475,8 +497,35 @@ func _place_stone_outcrop() -> void:
 	set_block(45, GROUND_Y + 2, 30, stone_id, false)
 
 
+func _place_boulders() -> void:
+	## Small mineable rock piles (replace the old walk-through rock props).
+	var stone_id := BlockDB.get_id("stone")
+	var cobble_id := BlockDB.get_id("cobble")
+	var spots: Array[Vector2i] = [
+		Vector2i(30, 20), Vector2i(22, 42), Vector2i(48, 46), Vector2i(14, 52),
+		Vector2i(54, 22), Vector2i(24, 16), Vector2i(18, 22), Vector2i(34, 12),
+	]
+	for i in spots.size():
+		var s := spots[i]
+		var y := surface_y(s.x, s.y) + 1
+		var cells: Array[Vector3i] = [
+			Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(0, 0, 1), Vector3i(1, 0, 1), Vector3i(0, 1, 0),
+		]
+		if i % 2 == 0:
+			cells.append(Vector3i(-1, 0, 0))
+			cells.append(Vector3i(1, 1, 1))
+		for c in cells:
+			var p := Vector3i(s.x, y, s.y) + c
+			if get_block(p.x, p.y, p.z) == 0:
+				set_block(p.x, p.y, p.z, cobble_id if (p.x + p.z) % 3 == 0 else stone_id, false)
+
+
+## v2: natural trees use tree_log blocks (log/birch_log) instead of wood.
+const WORLD_DATA_VERSION := 2
+
+
 func serialize() -> Dictionary:
-	var out := {"version": 1, "chunks": {}}
+	var out := {"version": WORLD_DATA_VERSION, "chunks": {}}
 	for key in chunks.keys():
 		var k: Vector3i = key
 		var b64 := Marshalls.raw_to_base64(chunks[key].to_bytes())
@@ -495,6 +544,33 @@ func deserialize(data: Dictionary) -> void:
 		var bytes := Marshalls.base64_to_raw(str(chunk_data[key_str]))
 		var chunk := ensure_chunk(key)
 		chunk.from_bytes(bytes)
+	if int(data.get("version", 1)) < 2:
+		migrated_tree_logs = _migrate_v1_tree_trunks()
 	for key in chunks.keys():
 		chunks[key].dirty = true
 		chunks[key].rebuild_mesh()
+
+
+func _migrate_v1_tree_trunks() -> int:
+	## v1 trees were plain `wood` columns capped by leaves. Convert those runs to
+	## natural logs so they fell like new trees; other wood (fences, builds) stays.
+	var wood_id := BlockDB.get_id("wood")
+	var log_id := BlockDB.get_id("log")
+	var size := world_size_blocks()
+	var converted := 0
+	for z in size.z:
+		for x in size.x:
+			var y := 0
+			while y < size.y:
+				if get_block(x, y, z) != wood_id or get_block(x, y - 1, z) == wood_id:
+					y += 1
+					continue
+				var top := y
+				while get_block(x, top + 1, z) == wood_id:
+					top += 1
+				if TreeGen.is_tree_leaves(get_block(x, top + 1, z)) and top - y < 8:
+					for ty in range(y, top + 1):
+						set_block(x, ty, z, log_id, false)
+						converted += 1
+				y = top + 1
+	return converted

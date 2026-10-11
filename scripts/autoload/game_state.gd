@@ -9,6 +9,10 @@ signal inventory_changed
 signal hotbar_changed(index: int)
 signal message(text: String)
 signal mining_progress(progress: float) ## 0..1 while Survival mining; <0 when idle
+## Gameplay events (tutorial / audio / stats listen to these).
+signal block_harvested(block: String, drop: String, count: int)
+signal block_placed(block: String)
+signal item_crafted(recipe_id: String, item: String)
 
 enum Mode { CREATIVE, SURVIVAL }
 
@@ -99,3 +103,16 @@ func toast(text: String) -> void:
 
 func notify_mining_progress(progress: float) -> void:
 	mining_progress.emit(progress)
+
+
+func notify_block_harvested(block: String, drop: String, count: int) -> void:
+	if block != "":
+		block_harvested.emit(block, drop, count)
+
+
+func notify_block_placed(block: String) -> void:
+	block_placed.emit(block)
+
+
+func notify_item_crafted(recipe_id: String, item: String) -> void:
+	item_crafted.emit(recipe_id, item)

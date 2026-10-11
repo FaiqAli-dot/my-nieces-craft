@@ -1,6 +1,7 @@
 extends CharacterBody3D
 class_name PlayerController
-## First-person player with desktop + touch movement, creative flight, Survival mining.
+## Meadow player (behind-view or eye-view) with desktop + touch movement,
+## creative flight, Survival mining. Aim always follows the screen crosshair.
 
 const SPEED := 5.5
 const FLY_SPEED := 6.5
@@ -11,6 +12,12 @@ const REACH := 6.0
 const CAPSULE_HEIGHT := 1.8
 const CAPSULE_RADIUS := 0.38
 const EYE_HEIGHT := 1.62
+## Third-person rig: camera sits behind the eye along the look axis, lifted so
+## the avatar's head stays below the crosshair.
+const TP_DISTANCE := 3.6
+const TP_LIFT := 0.55
+const TP_MIN_DISTANCE := 0.9
+const TURN_SPEED := 12.0
 
 @export var world_path: NodePath
 @export var ui_path: NodePath
@@ -30,6 +37,10 @@ var _mine_target := Vector3i(-9999, -9999, -9999)
 var _mine_progress := 0.0
 var _mine_needed := 0.0
 var _touch_mining := false
+var third_person := true
+var avatar: CozyCharacter
+var _cam_offset := Vector3.ZERO
+var _was_on_floor := true
 
 @onready var camera: Camera3D = $Head/Camera3D
 @onready var head: Node3D = $Head
@@ -52,6 +63,10 @@ func _ready() -> void:
 	ray.target_position = Vector3(0, 0, -REACH)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_setup_highlights()
+	avatar = CozyCharacter.new()
+	avatar.name = "Avatar"
+	add_child(avatar)
+	set_third_person(bool(Settings.get_value("third_person")))
 	floor_snap_length = 0.2
 	safe_margin = 0.08
 	if SceneFlow.has_meadow_return:
@@ -158,6 +173,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		GameState.toggle_creative()
 	if event.is_action_pressed("toggle_flight"):
 		GameState.toggle_flying()
+	if event.is_action_pressed("toggle_view"):
+		toggle_view()
 	for i in Inventory.HOTBAR_SIZE:
 		if event.is_action_pressed("hotbar_%d" % (i + 1)):
 			inventory.select(i)
@@ -194,6 +211,8 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 	_clamp_to_boundary()
+	_update_camera_rig()
+	_update_avatar(delta, flying)
 	_update_targeting()
 	_update_mining(delta)
 	if GameState.is_survival():
@@ -240,6 +259,75 @@ func _physics_fly(_delta: float) -> void:
 	velocity.y = vert * FLY_SPEED
 
 
+func set_third_person(enabled: bool, persist: bool = false) -> void:
+	third_person = enabled
+	if persist:
+		Settings.set_value("third_person", enabled)
+	_update_camera_rig()
+
+
+func toggle_view() -> void:
+	set_third_person(not third_person, true)
+	GameState.toast("Behind view" if third_person else "Eye view")
+
+
+## Camera offset in Head space for the current pitch, pulled in if terrain is
+## between the eye and the desired camera spot.
+func _update_camera_rig() -> void:
+	if not is_inside_tree():
+		return
+	var offset := Vector3.ZERO
+	if third_person:
+		var desired := Vector3(0.0, TP_LIFT, 0.0) + Basis(Vector3.RIGHT, look_pitch) * Vector3(0.0, 0.0, TP_DISTANCE)
+		var from := head.global_position
+		var to := head.global_transform * desired
+		var q := PhysicsRayQueryParameters3D.create(from, to, 1, [get_rid()])
+		var hit := get_world_3d().direct_space_state.intersect_ray(q)
+		if hit.is_empty():
+			offset = desired
+		else:
+			var d := maxf(from.distance_to(hit["position"]) - 0.25, TP_MIN_DISTANCE)
+			offset = desired.normalized() * d
+	_cam_offset = offset
+	camera.position = offset
+	ray.target_position = Vector3(0, 0, -(REACH + offset.length()))
+	ray.force_raycast_update()
+	if avatar:
+		avatar.visible = third_person and offset.length() > TP_MIN_DISTANCE + 0.05
+
+
+func _update_avatar(delta: float, flying: bool) -> void:
+	if avatar == null:
+		return
+	var flat := Vector2(velocity.x, velocity.z)
+	var busy := _mine_progress > 0.0 or _break_held or _touch_mining
+	var target_yaw := avatar.rotation.y
+	if busy or flat.length() < 0.3:
+		if busy:
+			target_yaw = look_yaw + PI
+	else:
+		target_yaw = atan2(flat.x, flat.y)
+	avatar.rotation.y = lerp_angle(avatar.rotation.y, target_yaw, clampf(TURN_SPEED * delta, 0.0, 1.0))
+	var grounded := is_on_floor() or flying
+	avatar.set_locomotion(flat.length() * (0.6 if flying else 1.0), grounded, 0.0 if flying else velocity.y)
+	avatar.set_mining(GameState.is_survival() and _mine_progress > 0.0)
+	var held := inventory.selected_item() if inventory else ""
+	if held != avatar.held_item:
+		avatar.set_held_item(held)
+
+
+## In third-person the crosshair ray starts behind the player; only accept hits
+## within normal reach of the eye and in front of it.
+func _ray_hit_ok() -> bool:
+	if not ray.is_colliding():
+		return false
+	if not third_person or _cam_offset == Vector3.ZERO:
+		return true
+	var to_hit := ray.get_collision_point() - head.global_position
+	var fwd := -camera.global_transform.basis.z
+	return to_hit.length() <= REACH + 0.5 and to_hit.dot(fwd) > 0.0
+
+
 func _clamp_to_boundary() -> void:
 	var p := global_position
 	p.x = clampf(p.x, world.boundary_min.x, world.boundary_max.x)
@@ -267,7 +355,7 @@ func player_aabb() -> AABB:
 func _update_targeting() -> void:
 	highlight.visible = false
 	place_preview.visible = false
-	if not ray.is_colliding():
+	if not _ray_hit_ok():
 		return
 	var hit_pos := ray.get_collision_point()
 	var normal := ray.get_collision_normal()
@@ -300,7 +388,7 @@ func _tint_highlight_for_mining() -> void:
 
 
 func get_target_block() -> Vector3i:
-	if not ray.is_colliding():
+	if not _ray_hit_ok():
 		return Vector3i(-9999, -9999, -9999)
 	var hit_pos := ray.get_collision_point()
 	var normal := ray.get_collision_normal()
@@ -309,7 +397,7 @@ func get_target_block() -> Vector3i:
 
 
 func get_place_pos() -> Vector3i:
-	if not ray.is_colliding():
+	if not _ray_hit_ok():
 		return Vector3i(-9999, -9999, -9999)
 	var hit_pos := ray.get_collision_point()
 	var normal := ray.get_collision_normal()
@@ -378,13 +466,19 @@ func _update_mining(delta: float) -> void:
 
 func _finish_survival_break(t: Vector3i) -> void:
 	var held := inventory.selected_item()
-	var drop := world.break_block_survival(t.x, t.y, t.z, held)
-	if drop != "":
+	var result := world.harvest_block(t.x, t.y, t.z, held, true)
+	var drop := str(result.get("drop", ""))
+	var count := int(result.get("count", 0))
+	if drop != "" and count > 0:
 		var at := Vector3(t) + Vector3(0.5, 0.5, 0.5)
-		world.spawn_drop(drop, 1, at)
-		GameState.toast("Got " + BlockDB.display_name(drop))
+		world.spawn_drop(drop, count, at)
+		if bool(result.get("felled", false)):
+			GameState.toast("Timber! %d %s" % [count, BlockDB.display_name(drop)])
+		else:
+			GameState.toast("Got " + BlockDB.display_name(drop))
 	else:
 		GameState.toast("Need the right tool")
+	GameState.notify_block_harvested(str(result.get("block", "")), drop, count)
 	if not MiningRules.tool_info(held).is_empty():
 		inventory.damage_selected_tool(1)
 	_play_sfx("res://assets/audio/rpg/chop.ogg")
@@ -403,11 +497,14 @@ func try_break() -> void:
 	var t := get_target_block()
 	if t.x == -9999:
 		return
-	var drop := world.break_block(t.x, t.y, t.z)
+	var result := world.harvest_block(t.x, t.y, t.z, "", false)
+	var drop := str(result.get("drop", ""))
+	_swing()
 	if drop != "":
 		inventory.add_item(drop, 1)
 		GameState.toast("Got " + BlockDB.display_name(drop))
 		_play_sfx("res://assets/audio/rpg/chop.ogg")
+		GameState.notify_block_harvested(str(result.get("block", "")), drop, 1)
 
 
 func try_place() -> void:
@@ -422,8 +519,17 @@ func try_place() -> void:
 		return
 	if not inventory.consume_selected(1):
 		return
-	world.set_block(p.x, p.y, p.z, BlockDB.place_block_id(item), true)
+	var block_id := BlockDB.place_block_id(item)
+	world.set_block(p.x, p.y, p.z, block_id, true)
+	_swing()
 	_play_sfx("res://assets/audio/impact/impactGeneric_light_000.ogg")
+	GameState.notify_block_placed(BlockDB.get_block_name(block_id))
+
+
+func _swing() -> void:
+	if avatar:
+		avatar.rotation.y = look_yaw + PI
+		avatar.play_action("swing")
 
 
 func near_crafting_table() -> bool:
@@ -435,6 +541,7 @@ func craft(recipe_id: String) -> void:
 	if crafting.craft(recipe_id, inventory, near_crafting_table()):
 		GameState.toast("Crafted!")
 		_play_sfx("res://assets/audio/interface/confirmation_001.ogg")
+		GameState.notify_item_crafted(recipe_id, str(crafting.find_recipe(recipe_id).get("output", {}).get("item", "")))
 	else:
 		var recipe := crafting.find_recipe(recipe_id)
 		if str(recipe.get("station", "")) == "crafting_table" and not near_crafting_table() and GameState.is_survival():

@@ -5,6 +5,9 @@ class_name SaveGame
 const SAVE_PATH := "user://cozyblocks_world.json"
 const SCHEMA_VERSION := 2
 
+## Tests redirect this so they never touch the player's real save.
+static var save_path: String = SAVE_PATH
+
 static func save_world(world: VoxelWorld, inventory: Inventory) -> bool:
 	var payload := {
 		"schema_version": SCHEMA_VERSION,

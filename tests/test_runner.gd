@@ -6,6 +6,10 @@ var failed := 0
 
 func _ready() -> void:
 	print("=== CozyBlocks Tests ===")
+	# Never read, overwrite or delete the player's real save.
+	SaveGame.save_path = "user://test_cozyblocks_world_%d.json" % OS.get_process_id()
+	Settings.path = "user://test_settings_%d.cfg" % OS.get_process_id()
+	Settings.load_from_disk()
 	_test_block_db()
 	_test_inventory()
 	_test_crafting()
@@ -44,8 +48,35 @@ func _ready() -> void:
 	await _test_mode_select_ui()
 	# Production upgrade suites
 	await _run_suite("res://tests/suites/net_reconnect_suite.gd")
+	await _run_suite("res://tests/suites/tree_suite.gd")
+	await _run_suite("res://tests/suites/character_suite.gd")
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
+	_cleanup_user_test_data()
 	get_tree().quit(1 if failed > 0 else 0)
+
+
+## Removes scratch saves/house dirs that tests create under user://.
+func _cleanup_user_test_data() -> void:
+	var dir := DirAccess.open("user://")
+	if dir == null:
+		return
+	for entry in dir.get_files():
+		if entry.begins_with("test_"):
+			dir.remove(entry)
+	for entry in dir.get_directories():
+		if entry.begins_with("test_"):
+			_remove_tree("user://" + entry)
+
+
+func _remove_tree(path: String) -> void:
+	var dir := DirAccess.open(path)
+	if dir == null:
+		return
+	for f in dir.get_files():
+		dir.remove(f)
+	for d in dir.get_directories():
+		_remove_tree(path.path_join(d))
+	DirAccess.remove_absolute(path)
 
 
 func _run_suite(path: String) -> void:
@@ -873,7 +904,7 @@ func _test_survival_progression_and_save() -> void:
 	GameState.set_game_mode(GameState.Mode.SURVIVAL)
 	var world := _make_world()
 	await get_tree().process_frame
-	_assert(world.get_block(26, VoxelWorld.GROUND_Y + 1, 30) == BlockDB.get_id("wood"), "voxel tree trunk")
+	_assert(world.get_block(26, VoxelWorld.GROUND_Y + 1, 30) == BlockDB.get_id("log"), "voxel tree trunk (natural log)")
 	_assert(world.get_block(44, VoxelWorld.GROUND_Y + 1, 30) == BlockDB.get_id("stone"), "stone outcrop")
 	var inv := Inventory.new(false)
 	_assert(inv.is_empty(), "fresh survival empty")
@@ -904,9 +935,7 @@ func _test_survival_progression_and_save() -> void:
 	_assert(craft.craft("stone_pickaxe", inv, true), "craft stone pickaxe")
 	_assert(inv.count_of("stone_pickaxe") == 1, "have stone pickaxe")
 	_assert(craft.craft("stone_axe", inv, true), "craft stone axe")
-	# Save / load
-	var prev_path := SaveGame.SAVE_PATH
-	# Use real save path but clean up
+	# Save / load (runner redirects SaveGame.save_path to a scratch file)
 	SaveGame.delete_save()
 	_assert(SaveGame.save_world(world, inv), "survival save")
 	var inv2 := Inventory.new(false)
@@ -922,7 +951,6 @@ func _test_survival_progression_and_save() -> void:
 	world.queue_free()
 	world2.queue_free()
 	await get_tree().process_frame
-	var _unused := prev_path
 
 
 func _test_legacy_save_defaults_creative() -> void:

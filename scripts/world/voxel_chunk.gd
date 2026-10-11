@@ -4,6 +4,9 @@ class_name VoxelChunk
 
 const SIZE := 16
 
+## Total mesh rebuilds since launch (perf regression tests).
+static var rebuild_count := 0
+
 var chunk_pos: Vector3i = Vector3i.ZERO
 var world: VoxelWorld
 var _blocks: PackedByteArray
@@ -107,6 +110,7 @@ func rebuild_mesh() -> void:
 	if not dirty:
 		return
 	dirty = false
+	rebuild_count += 1
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var atlas := BlockDB.get_atlas_texture()

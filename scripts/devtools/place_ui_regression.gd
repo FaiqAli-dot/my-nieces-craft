@@ -29,6 +29,7 @@ func _assert(cond: bool, msg: String) -> void:
 func _run() -> void:
 	var main := get_parent()
 	var player: PlayerController = main.get_node("Player")
+	player.set_third_person(false) # aims assume eye-level rays
 	var ui: GameUi = main.get_node("GameUI")
 	var vp := get_viewport()
 	var center := vp.get_visible_rect().size * 0.5

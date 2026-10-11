@@ -422,12 +422,9 @@ func _ensure_remote(info: Dictionary) -> RemotePlayer:
 		existing.display_name = str(info.get("display_name", existing.display_name))
 		return existing
 	var rp := RemotePlayer.new()
-	var scene := "res://assets/models/characters/character-female-a.glb"
-	if hash(pid) % 2 == 0:
-		scene = "res://assets/models/characters/character-b.glb"
-	rp.setup(pid, str(info.get("display_name", "Friend")), scene)
+	rp.setup(pid, str(info.get("display_name", "Friend")))
 	space.players_root.add_child(rp)
-	rp.global_position = Vector3(float(info.get("x", 6)), float(info.get("y", 0.1)), float(info.get("z", 6)))
+	rp.snap_to(Vector3(float(info.get("x", 6)), float(info.get("y", 0.1)), float(info.get("z", 6))))
 	_remotes[pid] = rp
 	return rp
 

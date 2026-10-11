@@ -7,8 +7,8 @@ func dress(root: Node3D) -> void:
 	var props := Node3D.new()
 	props.name = "MeadowProps"
 	root.add_child(props)
-	_place_hero_trees(props)
-	_place_rocks(props)
+	# Trees and rocks inside the playable area are real voxels (harvestable);
+	# only the backdrop beyond the world edge is decorative.
 	_place_flower_clusters(props)
 	_place_bushes(props)
 	_place_pathside(props)
@@ -226,33 +226,26 @@ func _add_mm_trees(parent: Node3D, gy: float) -> void:
 	trunk.height = 1.6
 	trunk.radial_segments = 6
 	var positions: Array[Vector3] = []
-	# Edge hubs + interior midground groves (skip build pad)
-	var hubs: Array[Vector2] = [
-		Vector2(8, 16), Vector2(56, 16), Vector2(8, 56), Vector2(56, 56),
-		Vector2(32, 8), Vector2(32, 58), Vector2(6, 36), Vector2(58, 36),
-		Vector2(20, 56), Vector2(44, 56), Vector2(12, 12), Vector2(52, 52),
-		Vector2(16, 32), Vector2(48, 38), Vector2(24, 20), Vector2(40, 48),
-		Vector2(12, 48), Vector2(28, 54), Vector2(50, 24), Vector2(20, 40),
-		Vector2(26, 36), Vector2(44, 32), Vector2(18, 44), Vector2(36, 22),
-		Vector2(30, 16), Vector2(46, 46), Vector2(14, 26), Vector2(38, 54),
-		# Extra mid/far groves for wide meadow depth
-		Vector2(22, 14), Vector2(36, 12), Vector2(48, 18), Vector2(14, 20),
-		Vector2(26, 28), Vector2(34, 34), Vector2(42, 40), Vector2(18, 36),
-		Vector2(10, 30), Vector2(54, 42), Vector2(28, 44), Vector2(38, 28),
-		# Far tree line behind garden (visible from animal pen)
-		Vector2(44, 2), Vector2(50, 2), Vector2(56, 3), Vector2(40, 3),
-	]
-	for h in hubs:
-		if _in_keepout(h.x, h.y):
-			continue
-		for k in 5:
-			var ang: float = float(k) * TAU / 5.0 + h.x * 0.1
-			var r: float = 1.2 + float(k) * 0.5
-			var px: float = h.x + cos(ang) * r
-			var pz: float = h.y + sin(ang) * r
-			if _in_keepout(px, pz):
-				continue
-			positions.append(Vector3(px, gy, pz))
+	# Backdrop ring strictly outside the playable boundary: it frames the
+	# horizon but can never look like an interactive (unbreakable) tree.
+	var size := float(VoxelWorld.WORLD_CHUNKS.x * VoxelChunk.SIZE)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7341
+	var ring_steps := int(size * 4.0 / 3.0)
+	for i in ring_steps:
+		var t := float(i) / float(ring_steps) * 4.0
+		var side := int(t)
+		var u := (t - float(side)) * size
+		for depth in [3.5, 7.0]:
+			var off: float = depth + rng.randf_range(-1.0, 1.0)
+			var p := Vector2.ZERO
+			match side:
+				0: p = Vector2(u, -off)
+				1: p = Vector2(size + off, u)
+				2: p = Vector2(size - u, size + off)
+				_: p = Vector2(-off, size - u)
+			positions.append(Vector3(p.x, gy - 0.5, p.y))
+	_add_backdrop_ground(parent, gy - 0.5, size)
 	var mm_c := MultiMeshInstance3D.new()
 	mm_c.name = "MM_TreeCanopies"
 	var mm1 := MultiMesh.new()
@@ -279,6 +272,19 @@ func _add_mm_trees(parent: Node3D, gy: float) -> void:
 	mm_t.multimesh = mm2
 	mm_t.material_override = _mm_material(Color(0.58, 0.36, 0.18))
 	parent.add_child(mm_t)
+
+
+func _add_backdrop_ground(parent: Node3D, y: float, size: float) -> void:
+	## Grass skirt beyond the world edge (sits below the voxel surface inside).
+	var mi := MeshInstance3D.new()
+	mi.name = "BackdropGround"
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(size + 160.0, size + 160.0)
+	mi.mesh = plane
+	mi.position = Vector3(size * 0.5, y, size * 0.5)
+	mi.material_override = _mm_material(Color(0.42, 0.74, 0.36))
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
 
 
 func _add_mm_flowers(parent: Node3D, gy: float) -> void:
