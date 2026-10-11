@@ -50,13 +50,19 @@ func _run() -> void:
 	await _shot("08_house_catalog_%s.png" % tag)
 
 	ui.panels.close("catalog")
+	# Free cell in front of the avatar camera so the ghost is on-screen.
+	var free_cell := Vector2i(5, 4)
+	_house.player.global_position = _house.space.spawn_position()
+	_house.player.yaw = 0.0
 	_house.start_place("chair")
 	await get_tree().process_frame
-	placement._anchor = Vector2i(3, 3)
+	placement.set_physics_process(false)
+	placement._anchor = free_cell
 	placement._valid = true
 	placement._last_reason = FurnitureValidator.Reason.OK
 	placement._update_preview_xform()
 	placement._tint(true)
+	await get_tree().process_frame
 	await get_tree().process_frame
 	await _shot("09_house_preview_valid_%s.png" % tag)
 
@@ -70,8 +76,10 @@ func _run() -> void:
 	placement._last_reason = FurnitureValidator.Reason.OK
 	placement._tint(true)
 	placement.rotate_preview(1)
+	placement._update_preview_xform()
 	await get_tree().process_frame
 	await _shot("11_house_preview_rotated_%s.png" % tag)
+	placement.set_physics_process(true)
 
 	placement.confirm()
 	await get_tree().process_frame

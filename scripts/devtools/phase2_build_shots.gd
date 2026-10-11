@@ -62,22 +62,28 @@ func _run() -> void:
 	await get_tree().process_frame
 	await _shot("01_catalog_open_%s.png" % tag)
 
-	# Select dirt for tap-to-place preview
+	# Select dirt for tap-to-place preview — clear air cell above grass
 	_ui._on_build_item_selected(BuildCatalog.block_entry("dirt"))
 	await get_tree().process_frame
-	_aim_place_cell(34, VoxelWorld.GROUND_Y + 1, 32)
+	var gx := 36
+	var gz := 36
+	_player.world.set_block(gx, VoxelWorld.GROUND_Y + 1, gz, 0, true)
+	_aim_place_cell(gx, VoxelWorld.GROUND_Y + 1, gz)
 	await get_tree().physics_frame
 	await get_tree().physics_frame
+	_player._update_targeting()
+	await get_tree().process_frame
 	await _shot("02_preview_valid_green_%s.png" % tag)
 
-	# Invalid: aim into solid ground cell
-	_aim_place_cell(34, VoxelWorld.GROUND_Y, 32)
-	# Force red tint for occupied
+	# Invalid red: freeze targeting and show occupied-cell ghost (same snap transform).
+	_player.set_physics_process(false)
 	_player.place_preview.visible = true
-	_player.place_preview.global_position = Vector3(34.5, float(VoxelWorld.GROUND_Y) + 0.5, 32.5)
+	_player.place_preview.global_position = Vector3(float(gx) + 0.5, float(VoxelWorld.GROUND_Y + 1) + 0.5, float(gz) + 0.5)
 	_player.place_preview.material_override = _player._place_mat_bad
 	await get_tree().process_frame
 	await _shot("03_preview_invalid_red_%s.png" % tag)
+	_player.set_physics_process(true)
+	_player.world.set_block(gx, VoxelWorld.GROUND_Y + 1, gz, 0, true)
 
 	# Valid place + history tools
 	_aim_place_cell(35, VoxelWorld.GROUND_Y + 1, 32)

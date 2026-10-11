@@ -76,7 +76,7 @@ func set_selected_entry(entry: Dictionary) -> void:
 
 
 func _build() -> void:
-	custom_minimum_size = Vector2(560, 480)
+	custom_minimum_size = Vector2(580, 560)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = COL_PANEL
 	sb.corner_radius_top_left = 22
@@ -157,6 +157,7 @@ func _build() -> void:
 	_tools.name = "Tools"
 	_tools.add_theme_constant_override("separation", 6)
 	_tools.alignment = BoxContainer.ALIGNMENT_CENTER
+	_tools.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(_tools)
 
 	var close_btn := Button.new()
@@ -361,6 +362,19 @@ func _update_tools() -> void:
 		return
 	for c in _tools.get_children():
 		c.queue_free()
+	# Two rows so Rotate/Undo/Redo/Cancel stay visible on phone widths.
+	var row1 := HBoxContainer.new()
+	row1.add_theme_constant_override("separation", 6)
+	row1.alignment = BoxContainer.ALIGNMENT_CENTER
+	var row2 := HBoxContainer.new()
+	row2.add_theme_constant_override("separation", 6)
+	row2.alignment = BoxContainer.ALIGNMENT_CENTER
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 6)
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrap.add_child(row1)
+	wrap.add_child(row2)
+	_tools.add_child(wrap)
 	var tools := [
 		["Rotate", "rotate", COL_PINK],
 		["Move", "move", COL_SKY],
@@ -370,17 +384,19 @@ func _update_tools() -> void:
 		["Redo", "redo", COL_ACCENT],
 		["Cancel", "cancel", COL_CORAL],
 	]
+	var i := 0
 	for spec in tools:
 		var b := Button.new()
 		b.text = spec[0]
 		b.name = "Tool_%s" % spec[1]
-		_style_btn(b, Vector2(72, 48), spec[2])
+		_style_btn(b, Vector2(68, 44), spec[2])
 		var tid: String = spec[1]
 		var enabled := _tool_enabled(tid)
 		b.disabled = not enabled
 		b.modulate = Color(1, 1, 1, 1) if enabled else Color(1, 1, 1, 0.45)
 		b.pressed.connect(func(): tool_pressed.emit(tid))
-		_tools.add_child(b)
+		(row1 if i < 4 else row2).add_child(b)
+		i += 1
 
 
 func _tool_enabled(tool_id: String) -> bool:
