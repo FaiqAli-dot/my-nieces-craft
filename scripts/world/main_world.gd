@@ -13,25 +13,6 @@ func _ready() -> void:
 	if OS.get_environment("COZY_FORCE_TOUCH") == "1" or OS.get_environment("COZY_SCREENSHOTS") == "1" or OS.get_environment("COZY_MOBILE_HUD_SHOTS") == "1" or OS.get_environment("COZY_TOUCH_TEST") == "1":
 		GameState.touch_controls_forced = true
 		ui._detect_touch()
-	# Kid-friendly mode pick when there is no save yet (skip under automated tests).
-	var skip_mode_ui := (
-		OS.get_environment("COZY_SMOKE") == "1"
-		or OS.get_environment("COZY_PLACE_UI_TEST") == "1"
-		or OS.get_environment("COZY_TOUCH_TEST") == "1"
-		or OS.get_environment("COZY_FLIGHT_LAYOUT_TEST") == "1"
-		or OS.get_environment("COZY_TRANSITION_TEST") == "1"
-		or OS.get_environment("COZY_MP_TEST") == "1"
-		or OS.get_environment("COZY_S2_SHOTS") == "1"
-		or OS.get_environment("COZY_S2_DEMO") == "1"
-		or OS.get_environment("COZY_SKIP_MODE_SELECT") == "1"
-	)
-	if not skip_mode_ui and not SaveGame.save_exists():
-		call_deferred("_offer_new_world")
-
-
-func _offer_new_world() -> void:
-	if ui and ui.has_method("show_mode_select"):
-		ui.show_mode_select()
 	if OS.get_environment("COZY_SCREENSHOTS") == "1":
 		var harness := Node.new()
 		harness.set_script(load("res://scripts/devtools/screenshot_harness.gd"))
@@ -72,9 +53,28 @@ func _offer_new_world() -> void:
 		var s2demo := Node.new()
 		s2demo.set_script(load("res://scripts/devtools/s2_demo_driver.gd"))
 		add_child(s2demo)
+	# Kid-friendly mode pick when there is no save yet (skip under automated tests).
+	var skip_mode_ui := (
+		OS.get_environment("COZY_SMOKE") == "1"
+		or OS.get_environment("COZY_PLACE_UI_TEST") == "1"
+		or OS.get_environment("COZY_TOUCH_TEST") == "1"
+		or OS.get_environment("COZY_FLIGHT_LAYOUT_TEST") == "1"
+		or OS.get_environment("COZY_TRANSITION_TEST") == "1"
+		or OS.get_environment("COZY_MP_TEST") == "1"
+		or OS.get_environment("COZY_S2_SHOTS") == "1"
+		or OS.get_environment("COZY_S2_DEMO") == "1"
+		or OS.get_environment("COZY_SKIP_MODE_SELECT") == "1"
+	)
+	if not skip_mode_ui and not SaveGame.save_exists():
+		call_deferred("_offer_new_world")
 	if OS.get_environment("COZY_SMOKE") == "1":
 		await get_tree().create_timer(1.5).timeout
 		_run_smoke()
+
+
+func _offer_new_world() -> void:
+	if ui and ui.has_method("show_mode_select"):
+		ui.show_mode_select()
 
 
 func _setup_environment() -> void:

@@ -760,16 +760,14 @@ func flight_control_rects() -> Dictionary:
 func _on_creative(enabled: bool) -> void:
 	creative_label.text = "Creative" if enabled else "Survival"
 	mode_btn.tooltip_text = "Mode: " + ("Creative" if enabled else "Survival")
-	var bg := COL_GREEN if enabled else Color("7CB342")
-	if not enabled:
-		bg = Color("5D8A66")
+	var bg := COL_GREEN if enabled else COL_SKY
 	mode_btn.add_theme_stylebox_override("normal", _sb(bg, 18, Color(1, 1, 1, 0.9), 3))
 	mode_btn.add_theme_stylebox_override("hover", _sb(bg.lightened(0.08), 18, Color(1, 1, 1, 0.95), 3))
 	mode_btn.add_theme_stylebox_override("pressed", _sb(bg.darkened(0.1), 18, COL_INK, 4))
 	if hint_label:
 		hint_label.visible = not enabled
 		if not enabled:
-			hint_label.text = "Survival: punch trees, craft tools, dig stone!"
+			hint_label.text = "Punch trees · craft tools · dig stone"
 	refresh_hotbar()
 	_layout_fly_controls()
 
@@ -872,10 +870,10 @@ func _build_hint_label() -> void:
 	hint_label.visible = false
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	hint_label.offset_top = 78
-	hint_label.offset_left = -240
-	hint_label.offset_right = 240
-	hint_label.offset_bottom = 108
+	hint_label.offset_top = 118
+	hint_label.offset_left = -260
+	hint_label.offset_right = 260
+	hint_label.offset_bottom = 148
 	hint_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hint_label.add_theme_color_override("font_color", COL_INK)
 	if _font:
@@ -950,7 +948,7 @@ func _build_mode_select() -> void:
 	row.add_child(_mode_picture_button(
 		"Survival",
 		"Empty bag!\nChop wood, craft tools.",
-		Color("5D8A66"),
+		COL_SKY,
 		func(): _choose_mode(GameState.Mode.SURVIVAL)
 	))
 
@@ -981,7 +979,7 @@ func _choose_mode(mode: int) -> void:
 		refresh_hotbar()
 		_on_creative(GameState.is_creative())
 	else:
-		GameState.set_game_mode(mode)
+		GameState.set_game_mode(mode, true)
 	GameState.toast("Let's play %s!" % GameState.mode_label())
 	_restore_play_mouse()
 

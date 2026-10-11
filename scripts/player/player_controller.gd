@@ -16,8 +16,8 @@ const EYE_HEIGHT := 1.62
 @export var ui_path: NodePath
 @export var touch_look_sensitivity: float = 0.0045
 
-var inventory := Inventory.new()
-var crafting := CraftingSystem.new()
+var inventory: Inventory
+var crafting: CraftingSystem
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var touch_move := Vector2.ZERO
 var touch_look := Vector2.ZERO
@@ -42,6 +42,10 @@ var world: VoxelWorld
 var ui: CanvasLayer
 
 func _ready() -> void:
+	if inventory == null:
+		inventory = Inventory.new()
+	if crafting == null:
+		crafting = CraftingSystem.new()
 	world = get_node(world_path)
 	ui = get_node(ui_path)
 	_apply_body_proportions()

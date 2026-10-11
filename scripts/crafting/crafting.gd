@@ -22,6 +22,9 @@ func reload() -> void:
 
 func _validate() -> void:
 	_validation_errors.clear()
+	# BlockDB may not have finished _ready during early PlayerController member init.
+	if BlockDB.get_block("stone").is_empty():
+		return
 	var seen := {}
 	for r in recipes:
 		if typeof(r) != TYPE_DICTIONARY:

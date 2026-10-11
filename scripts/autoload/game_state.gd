@@ -40,7 +40,7 @@ func mode_label() -> String:
 	return "Creative" if is_creative() else "Survival"
 
 
-func set_game_mode(mode: int) -> void:
+func set_game_mode(mode: int, announce: bool = false) -> void:
 	if mode != Mode.CREATIVE and mode != Mode.SURVIVAL:
 		push_warning("Unknown game mode %s — defaulting to Creative" % mode)
 		mode = Mode.CREATIVE
@@ -53,7 +53,8 @@ func set_game_mode(mode: int) -> void:
 	if changed:
 		creative_changed.emit(is_creative())
 		mode_changed.emit(game_mode)
-		message.emit("Mode: " + mode_label())
+		if announce:
+			message.emit("Let's play " + mode_label() + "!")
 
 
 func set_creative(enabled: bool) -> void:
