@@ -37,6 +37,8 @@ func _run() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	await get_tree().process_frame
 
+	var cluster_dir := out_dir.path_join("action_cluster")
+	DirAccess.make_dir_recursive_absolute(cluster_dir)
 	for spec in SIZES:
 		get_window().size = spec["size"]
 		OS.set_environment("COZY_SAFE_INSET", str(spec["inset"]))
@@ -50,15 +52,18 @@ func _run() -> void:
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await _shot(out_dir, "%s_flight_off.png" % spec["name"])
+		await _shot(cluster_dir, "%s_flight_off.png" % spec["name"])
 		GameState.set_flying(true)
 		ui._layout_fly_controls()
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await _shot(out_dir, "%s_flight_on.png" % spec["name"])
+		await _shot(cluster_dir, "%s_flight_on.png" % spec["name"])
 		GameState.set_flying(false)
 		ui._layout_fly_controls()
 		await get_tree().process_frame
 		await _shot(out_dir, "%s_flight_off_again.png" % spec["name"])
+		await _shot(cluster_dir, "%s_flight_off_again.png" % spec["name"])
 
 	# Combat presence: face a gloomlet and capture.
 	GameState.set_creative(true)

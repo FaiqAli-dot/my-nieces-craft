@@ -1,6 +1,7 @@
 extends Node
 ## Assert flight controls never overlap joystick / hotbar / action buttons
 ## at phone + tablet sizes (with notch safe insets where relevant).
+## Also: Jump/Break/Place/Fly stay put across flight toggles (Up/Down only show/hide).
 ## Run: COZY_FLIGHT_LAYOUT_TEST=1 COZY_FORCE_TOUCH=1 godot --path .
 
 const SIZES := [
@@ -38,6 +39,47 @@ func _rects_overlap(a: Rect2, b: Rect2, pad := 2.0) -> bool:
 	return aa.intersects(bb)
 
 
+func _snapshot_actions(ui: GameUi) -> Dictionary:
+	var actions: TouchActionCluster = ui.touch_controls.actions
+	var out := {}
+	for pair in [
+		["jump", actions.jump_btn],
+		["break", actions.break_btn],
+		["place", actions.place_btn],
+		["fly", ui.fly_btn],
+	]:
+		var key: String = pair[0]
+		var btn: Control = pair[1]
+		if btn == null:
+			continue
+		out[key] = {
+			"rect": btn.get_global_rect(),
+			"anchors": [btn.anchor_left, btn.anchor_top, btn.anchor_right, btn.anchor_bottom],
+			"offsets": [btn.offset_left, btn.offset_top, btn.offset_right, btn.offset_bottom],
+			"pos": btn.position,
+			"size": btn.size,
+		}
+	out["cluster"] = {
+		"rect": actions.get_global_rect(),
+		"anchors": [actions.anchor_left, actions.anchor_top, actions.anchor_right, actions.anchor_bottom],
+		"offsets": [actions.offset_left, actions.offset_top, actions.offset_right, actions.offset_bottom],
+		"size": actions.size,
+	}
+	return out
+
+
+func _assert_snapshot_equal(a: Dictionary, b: Dictionary, label: String) -> void:
+	for key in a.keys():
+		var aa: Dictionary = a[key]
+		var bb: Dictionary = b[key]
+		_assert((aa["rect"] as Rect2).position.is_equal_approx((bb["rect"] as Rect2).position), "%s %s rect pos stable" % [label, key])
+		_assert((aa["rect"] as Rect2).size.is_equal_approx((bb["rect"] as Rect2).size), "%s %s rect size stable" % [label, key])
+		if aa.has("anchors") and bb.has("anchors"):
+			_assert(aa["anchors"] == bb["anchors"], "%s %s anchors stable" % [label, key])
+		if aa.has("offsets") and bb.has("offsets"):
+			_assert(aa["offsets"] == bb["offsets"], "%s %s offsets stable" % [label, key])
+
+
 func _run() -> void:
 	var main := get_parent()
 	var ui: GameUi = main.get_node("GameUI")
@@ -56,7 +98,6 @@ func _run() -> void:
 		if ui.touch_controls and ui.touch_controls.has_method("_on_viewport_resized"):
 			ui.touch_controls._on_viewport_resized()
 		ui._layout_hotbar()
-		# Capture joystick before flight toggles — must stay put.
 		GameState.set_flying(false)
 		ui._layout_fly_controls()
 		await get_tree().process_frame
@@ -65,7 +106,11 @@ func _run() -> void:
 		var rect0 := joy0.get_global_rect()
 		var anchors0 := [joy0.anchor_left, joy0.anchor_top, joy0.anchor_right, joy0.anchor_bottom]
 		var offsets0 := [joy0.offset_left, joy0.offset_top, joy0.offset_right, joy0.offset_bottom]
-		# Off + on for each size
+		var snap0 := _snapshot_actions(ui)
+		var fly_child_count := ui._fly_cluster.get_child_count()
+		var action_child_count := ui.touch_controls.actions.get_child_count()
+
+		# Off + on layout / overlap checks
 		for flying in [false, true]:
 			GameState.set_flying(flying)
 			ui._layout_fly_controls()
@@ -85,6 +130,21 @@ func _run() -> void:
 				offsets0 == [joy1.offset_left, joy1.offset_top, joy1.offset_right, joy1.offset_bottom],
 				"%s joystick offsets stable" % label
 			)
+			_assert_snapshot_equal(snap0, _snapshot_actions(ui), label)
+
+		# Ten toggles: non-flight right controls + Fly stay identical; no duplicates.
+		for i in 10:
+			GameState.set_flying(not GameState.flying)
+			ui._layout_fly_controls()
+			await get_tree().process_frame
+		GameState.set_flying(false)
+		ui._layout_fly_controls()
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var ten_label := "%s after_10_toggles" % spec["name"]
+		_assert_snapshot_equal(snap0, _snapshot_actions(ui), ten_label)
+		_assert(ui._fly_cluster.get_child_count() == fly_child_count, "%s no duplicate flight controls" % ten_label)
+		_assert(ui.touch_controls.actions.get_child_count() == action_child_count, "%s no duplicate action controls" % ten_label)
 
 
 func _assert_layout(ui: GameUi, label: String) -> void:
@@ -132,8 +192,12 @@ func _assert_layout(ui: GameUi, label: String) -> void:
 	# Fly toggle must be on the right half (beside Jump), never clipped to far-left edge.
 	var fly_r: Rect2 = fly_rects["fly"] as Rect2
 	_assert(fly_r.position.x > vp.size.x * 0.45, "%s Fly on right side near Jump" % label)
+	var jump_r: Rect2 = actions.jump_btn.get_global_rect()
+	_assert(fly_r.end.x <= jump_r.position.x + 2.0, "%s Fly is left of Jump" % label)
+	# Fly sits in the fixed slot above the Up slot (Up aligns with Jump top).
+	_assert(fly_r.end.y <= jump_r.position.y + 2.0, "%s Fly above Jump top" % label)
 	if fly_rects.has("up"):
 		var up_r: Rect2 = fly_rects["up"] as Rect2
-		var jump_r: Rect2 = actions.jump_btn.get_global_rect()
 		_assert(up_r.end.x <= jump_r.position.x + 2.0, "%s Up is left of Jump" % label)
 		_assert(absf(up_r.position.y - jump_r.position.y) < 8.0, "%s Up aligned with Jump top" % label)
+		_assert(absf(up_r.position.x - fly_r.position.x) < 2.0, "%s Up under Fly column" % label)

@@ -48,6 +48,7 @@ func _ready() -> void:
 	await _test_mining_cancel_on_release()
 	await _test_monster_combat_pipeline()
 	await _test_flight_toggle_keeps_joystick_stable()
+	await _test_flight_toggle_keeps_action_cluster_stable()
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
 	get_tree().quit(1 if failed > 0 else 0)
 
@@ -1234,6 +1235,80 @@ func _test_flight_toggle_keeps_joystick_stable() -> void:
 	await get_tree().process_frame
 	_assert(ui._fly_cluster == null or not ui._fly_cluster.visible, "survival hides flight cluster")
 	GameState.set_creative(true)
+	GameState.touch_controls_forced = false
+	ui.queue_free()
+	await get_tree().process_frame
+
+
+func _test_flight_toggle_keeps_action_cluster_stable() -> void:
+	## Jump / Break / Place / Fly must not reflow when Up/Down show or hide.
+	var ui := GameUi.new()
+	add_child(ui)
+	GameState.touch_controls_forced = true
+	GameState.set_creative(true)
+	GameState.set_flying(false)
+	ui._detect_touch()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	ui._layout_fly_controls()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var actions: TouchActionCluster = ui.touch_controls.actions
+	_assert(actions != null and ui.fly_btn != null, "action cluster + Fly exist")
+	var controls: Array = [actions.jump_btn, actions.break_btn, actions.place_btn, ui.fly_btn]
+	var rects0: Array[Rect2] = []
+	var anchors0: Array = []
+	var offsets0: Array = []
+	for c in controls:
+		var ctrl: Control = c
+		rects0.append(ctrl.get_global_rect())
+		anchors0.append([ctrl.anchor_left, ctrl.anchor_top, ctrl.anchor_right, ctrl.anchor_bottom])
+		offsets0.append([ctrl.offset_left, ctrl.offset_top, ctrl.offset_right, ctrl.offset_bottom])
+	var cluster_rect0 := actions.get_global_rect()
+	var cluster_off0 := [actions.offset_left, actions.offset_top, actions.offset_right, actions.offset_bottom]
+	var fly_n0 := ui._fly_cluster.get_child_count()
+	var act_n0 := actions.get_child_count()
+	for i in 10:
+		GameState.set_flying(not GameState.flying)
+		ui._layout_fly_controls()
+		await get_tree().process_frame
+	GameState.set_flying(false)
+	ui._layout_fly_controls()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var names := ["Jump", "Break", "Place", "Fly"]
+	for i in controls.size():
+		var ctrl: Control = controls[i]
+		var r1 := ctrl.get_global_rect()
+		_assert(rects0[i].position.is_equal_approx(r1.position), "%s rect pos stable across 10 flight toggles" % names[i])
+		_assert(rects0[i].size.is_equal_approx(r1.size), "%s rect size stable across 10 flight toggles" % names[i])
+		_assert(
+			anchors0[i] == [ctrl.anchor_left, ctrl.anchor_top, ctrl.anchor_right, ctrl.anchor_bottom],
+			"%s anchors stable across 10 flight toggles" % names[i]
+		)
+		_assert(
+			offsets0[i] == [ctrl.offset_left, ctrl.offset_top, ctrl.offset_right, ctrl.offset_bottom],
+			"%s offsets stable across 10 flight toggles" % names[i]
+		)
+	var cluster_rect1 := actions.get_global_rect()
+	_assert(cluster_rect0.position.is_equal_approx(cluster_rect1.position), "action cluster pos stable")
+	_assert(cluster_rect0.size.is_equal_approx(cluster_rect1.size), "action cluster size stable")
+	_assert(
+		cluster_off0 == [actions.offset_left, actions.offset_top, actions.offset_right, actions.offset_bottom],
+		"action cluster offsets stable"
+	)
+	_assert(ui._fly_cluster.get_child_count() == fly_n0, "no duplicate flight controls after 10 toggles")
+	_assert(actions.get_child_count() == act_n0, "no duplicate action controls after 10 toggles")
+	# Up/Down only appear while flying; Fly stays put.
+	GameState.set_flying(true)
+	ui._layout_fly_controls()
+	await get_tree().process_frame
+	_assert(ui.fly_up_btn.visible and ui.fly_down_btn.visible, "Up/Down shown while flying")
+	_assert(ui.fly_btn.get_global_rect().position.is_equal_approx(rects0[3].position), "Fly pos unchanged when Up/Down appear")
+	GameState.set_flying(false)
+	ui._layout_fly_controls()
+	await get_tree().process_frame
+	_assert(not ui.fly_up_btn.visible and not ui.fly_down_btn.visible, "Up/Down hidden when landed")
 	GameState.touch_controls_forced = false
 	ui.queue_free()
 	await get_tree().process_frame

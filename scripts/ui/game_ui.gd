@@ -721,8 +721,8 @@ func _layout_fly_controls() -> void:
 			actions.set_flight_column_inset(0.0)
 		return
 	# Do NOT call touch_controls._on_viewport_resized() here — that reflows the
-	# movement joystick on every Fly/Land toggle. Only the right action cluster
-	# and flight buttons may change.
+	# movement joystick. Flight toggle must also NOT resize/reposition Jump /
+	# Break / Place: metrics below are independent of GameState.flying.
 	actions = touch_controls.actions if touch_controls else null
 	if actions == null or actions.jump_btn == null:
 		return
@@ -735,16 +735,15 @@ func _layout_fly_controls() -> void:
 	var flying := GameState.flying
 	var inset := _safe_insets()
 	var phone_like := short_side < 900.0 or (vp.x / maxf(vp.y, 1.0) > 1.8)
-	# Always reserve a column left of Jump for Fly (and Up/Down while flying).
+	# Fixed reserved column left of Jump for Fly + Up + Down (always).
 	var reserve := sz + gap
 	if actions.has_method("set_flight_column_inset"):
 		actions.set_flight_column_inset(reserve)
 	var base_aw := (230.0 if phone_like else 270.0) * scale
 	var cluster_w := base_aw + reserve
-	var ah := (260.0 if phone_like else 310.0) * scale
-	# Extra height when flying so Land above Up stays inside the cluster band.
-	if flying:
-		ah = maxf(ah, sz * 3.0 + gap * 2.0 + 24.0 * scale)
+	# Always tall enough for Fly above Up/Down — never grow/shrink on toggle.
+	var base_ah := (260.0 if phone_like else 310.0) * scale
+	var ah := maxf(base_ah, sz * 3.0 + gap * 2.0 + 24.0 * scale)
 	# Keep the whole right cluster (Jump + flight column) above the hotbar.
 	ui_layout_hotbar_for_flight()
 	var bottom_clear := 4.0 + inset.w
@@ -752,12 +751,11 @@ func _layout_fly_controls() -> void:
 		var hot_r: Rect2 = hotbar_tray.get_global_rect()
 		# Distance from viewport bottom to hotbar top, plus a kid-friendly gap.
 		bottom_clear = maxf(bottom_clear, (vp.y - hot_r.position.y) + 12.0 * scale)
-	# Down sits below Jump; reserve that overhang so it clears the hotbar.
-	if flying:
-		var jump_h := actions.primary_size
-		var column_h := sz * 2.0 + gap
-		var overhang := maxf(0.0, column_h - jump_h)
-		bottom_clear += overhang + 8.0 * scale
+	# Always reserve Down's overhang so Jump/Break/Place never shift on toggle.
+	var jump_h := actions.primary_size
+	var column_h := sz * 2.0 + gap
+	var overhang := maxf(0.0, column_h - jump_h)
+	bottom_clear += overhang + 8.0 * scale
 	actions.custom_minimum_size = Vector2(cluster_w, ah)
 	actions.anchor_left = 1.0
 	actions.anchor_top = 1.0
@@ -770,6 +768,7 @@ func _layout_fly_controls() -> void:
 	if actions.has_method("_layout"):
 		actions._layout()
 
+	# Only visibility changes with flying — slots stay fixed.
 	fly_up_btn.visible = flying
 	fly_down_btn.visible = flying
 	_size_fly_btn(fly_btn, sz)
@@ -777,33 +776,39 @@ func _layout_fly_controls() -> void:
 	_size_fly_btn(fly_down_btn, sz)
 
 	var jump_r := actions.jump_btn.get_global_rect()
-	# Column immediately left of Jump — Fly/Land always; Up/Down while flying.
 	var col_x := jump_r.position.x - gap - sz
-	if flying:
-		var up_y := jump_r.position.y
-		var down_y := up_y + sz + gap
-		fly_up_btn.global_position = Vector2(col_x, up_y)
-		fly_down_btn.global_position = Vector2(col_x, down_y)
-		# Land toggle above Up — green on-state.
-		fly_btn.global_position = Vector2(col_x, up_y - gap - sz)
-	else:
-		# Fly toggle beside Jump (sky off-state) — never on the left screen edge.
-		fly_btn.global_position = Vector2(col_x, jump_r.position.y + (jump_r.size.y - sz) * 0.5)
+	var up_y := jump_r.position.y
+	var down_y := up_y + sz + gap
+	var fly_y := up_y - gap - sz
+	# Fixed slots: Fly/Land always at top of column; Up/Down beneath (show/hide).
+	var fly_pos := Vector2(col_x, fly_y)
+	var up_pos := Vector2(col_x, up_y)
+	var down_pos := Vector2(col_x, down_y)
 
-	# Keep every flight control inside the safe rectangle.
+	# Clamp intended slots into the safe rect without depending on visibility
+	# (hiding Up/Down must not change Fly's clamped position).
 	var safe := Rect2(inset.x, inset.y, vp.x - inset.x - inset.z, vp.y - inset.y - inset.w)
+	fly_pos = _clamp_btn_pos(fly_pos, sz, safe)
+	up_pos = _clamp_btn_pos(up_pos, sz, safe)
+	down_pos = _clamp_btn_pos(down_pos, sz, safe)
+
+	fly_btn.global_position = fly_pos
+	fly_up_btn.global_position = up_pos
+	fly_down_btn.global_position = down_pos
 	for btn in [fly_btn, fly_up_btn, fly_down_btn]:
-		if btn == null or not btn.visible:
+		if btn == null:
 			continue
-		var r: Rect2 = btn.get_global_rect()
-		var pos: Vector2 = r.position
-		pos.x = clampf(pos.x, safe.position.x, safe.end.x - r.size.x)
-		pos.y = clampf(pos.y, safe.position.y, safe.end.y - r.size.y)
-		btn.global_position = pos
 		if btn.has_method("_layout_children"):
 			btn._layout_children()
 		if btn.has_method("_apply_style"):
 			btn._apply_style(false)
+
+
+func _clamp_btn_pos(pos: Vector2, sz: float, safe: Rect2) -> Vector2:
+	return Vector2(
+		clampf(pos.x, safe.position.x, safe.end.x - sz),
+		clampf(pos.y, safe.position.y, safe.end.y - sz)
+	)
 
 
 func _size_fly_btn(btn: ActionButton, sz: float) -> void:
