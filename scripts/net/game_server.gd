@@ -17,6 +17,9 @@ var _peers: Dictionary = {} # peer_id -> {ws, player_id, display_name, house_id,
 var _next_peer_id: int = 1
 var _rooms: Dictionary = {} # house_id -> {members: Dictionary peer_id->true, positions: Dictionary player_id->dict}
 var _identity_to_peer: Dictionary = {} # player_id -> peer_id
+## Recently removed furniture ids eligible for undo/redo restore (house_id -> iid -> {def_id, rev}).
+## In-memory only; still refuses stale revisions and ids that are currently live.
+var _removed_tombstones: Dictionary = {}
 var _tick_accum := 0.0
 
 
@@ -358,6 +361,22 @@ func _on_furn_place(peer_id: int, p: Dictionary, op: String) -> void:
 		_send_error(peer_id, "stale revision", "stale_op")
 		_send_house_state(peer_id, house)
 		return
+	var restore_iid := str(p.get("instance_id", "")).strip_edges()
+	var iid := "furn_" + _rand(10)
+	if restore_iid != "":
+		# Preserve identity on undo-of-remove: only previously removed ids for this house.
+		if not house.find_instance(restore_iid).is_empty():
+			_send_error(peer_id, "instance already exists", "reject")
+			return
+		var tombs: Dictionary = _removed_tombstones.get(house.house_id, {})
+		if not tombs.has(restore_iid):
+			_send_error(peer_id, "unknown restore id", "reject")
+			return
+		var tomb: Dictionary = tombs[restore_iid]
+		if str(tomb.get("def_id", "")) != def_id:
+			_send_error(peer_id, "restore def mismatch", "reject")
+			return
+		iid = restore_iid
 	var occupied := FurnitureValidator.build_occupied_map(house.furniture)
 	var reason := FurnitureValidator.validate_placement(
 		def_id, cell, rot, house.room_min, house.room_max, occupied, "", house.walls, house.cells()
@@ -366,7 +385,7 @@ func _on_furn_place(peer_id: int, p: Dictionary, op: String) -> void:
 		_send_error(peer_id, FurnitureValidator.reason_text(reason), "reject")
 		return
 	var inst := {
-		"instance_id": "furn_" + _rand(10),
+		"instance_id": iid,
 		"def_id": def_id,
 		"cell_x": cell.x,
 		"cell_z": cell.y,
@@ -375,6 +394,10 @@ func _on_furn_place(peer_id: int, p: Dictionary, op: String) -> void:
 	house.furniture.append(inst)
 	house.revision += 1
 	store.save_house(house)
+	if restore_iid != "":
+		var tombs2: Dictionary = _removed_tombstones.get(house.house_id, {})
+		tombs2.erase(restore_iid)
+		_removed_tombstones[house.house_id] = tombs2
 	_broadcast(house.house_id, NetProtocol.pack(NetProtocol.S_FURN_UPSERT, {
 		"instance": inst,
 		"revision": house.revision,
@@ -454,11 +477,21 @@ func _on_furn_remove(peer_id: int, p: Dictionary, op: String) -> void:
 		_send_error(peer_id, "stale revision", "stale_op")
 		_send_house_state(peer_id, house)
 		return
+	var existing := house.find_instance(iid)
+	if existing.is_empty():
+		_send_error(peer_id, "unknown furniture")
+		return
 	if not house.remove_instance(iid):
 		_send_error(peer_id, "unknown furniture")
 		return
 	house.revision += 1
 	store.save_house(house)
+	var tombs: Dictionary = _removed_tombstones.get(house.house_id, {})
+	tombs[iid] = {
+		"def_id": str(existing.get("def_id", "")),
+		"rev": house.revision,
+	}
+	_removed_tombstones[house.house_id] = tombs
 	_broadcast(house.house_id, NetProtocol.pack(NetProtocol.S_FURN_REMOVED, {
 		"instance_id": iid,
 		"revision": house.revision,

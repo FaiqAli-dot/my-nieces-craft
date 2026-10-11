@@ -126,7 +126,9 @@ func _pick_catalog(def_id: String) -> void:
 	ui.open_catalog()
 	await get_tree().process_frame
 	_assert(ui.catalog_panel.visible, "catalog open for %s" % def_id)
-	var grid: GridContainer = ui.catalog_panel.get_node("Margin/VBox/Grid")
+	var grid: GridContainer = ui.catalog_panel.get_node_or_null("Margin/VBox/Grid")
+	if grid == null:
+		grid = ui.catalog_panel.get_node_or_null("Margin/VBox/Scroll/Grid")
 	# Buttons are added after populate; wait one frame for queue_free of old kids.
 	await get_tree().process_frame
 	var want := FurnitureDB.display_name(def_id)
@@ -158,9 +160,18 @@ func _place_via_catalog_and_place_btn(def_id: String, cell: Vector2i, label: Str
 	_aim_valid(cell)
 	ui.place_btn.pressed.emit()
 	await get_tree().process_frame
-	_assert(_world.placement.mode == PlacementController.Mode.IDLE, "%s Place button exits mode" % label)
+	# Continuous place keeps PLACE/COPY so kids can tap more spots; Cancel clears.
+	_assert(
+		_world.placement.mode == PlacementController.Mode.PLACE
+		or _world.placement.mode == PlacementController.Mode.COPY
+		or _world.placement.mode == PlacementController.Mode.IDLE,
+		"%s Place confirms (idle or keep-placing)" % label
+	)
 	_assert(_world._furniture.size() == before + 1, "%s furniture spawned" % label)
 	_assert(_find_at(def_id, cell), "%s instance at cell" % label)
+	if _world.placement.mode != PlacementController.Mode.IDLE:
+		_world.cancel_placement()
+		await get_tree().process_frame
 
 
 func _place_via_catalog_and_key(def_id: String, cell: Vector2i, keycode: Key, label: String) -> void:
@@ -172,9 +183,17 @@ func _place_via_catalog_and_key(def_id: String, cell: Vector2i, keycode: Key, la
 	ev.physical_keycode = keycode
 	_world._unhandled_input(ev)
 	await get_tree().process_frame
-	_assert(_world.placement.mode == PlacementController.Mode.IDLE, "%s key confirm exits mode" % label)
+	_assert(
+		_world.placement.mode == PlacementController.Mode.PLACE
+		or _world.placement.mode == PlacementController.Mode.COPY
+		or _world.placement.mode == PlacementController.Mode.IDLE,
+		"%s key confirm (idle or keep-placing)" % label
+	)
 	_assert(_world._furniture.size() == before + 1, "%s furniture spawned" % label)
 	_assert(_find_at(def_id, cell), "%s instance at cell" % label)
+	if _world.placement.mode != PlacementController.Mode.IDLE:
+		_world.cancel_placement()
+		await get_tree().process_frame
 
 
 func _find_at(def_id: String, cell: Vector2i) -> bool:

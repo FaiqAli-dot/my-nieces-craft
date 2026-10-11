@@ -25,6 +25,7 @@ var invite_chip: Label
 var roster_box: VBoxContainer
 var debug_box: VBoxContainer
 var catalog_panel: PanelContainer
+var build_catalog: BuildCatalogPanel
 var visit_panel: PanelContainer
 var size_panel: PanelContainer
 var build_panel: PanelContainer
@@ -40,6 +41,11 @@ var place_btn: ActionButton
 var rotate_btn: ActionButton
 var cancel_btn: ActionButton
 var jump_btn: ActionButton
+var move_btn: ActionButton
+var copy_btn: ActionButton
+var undo_btn: ActionButton
+var redo_btn: ActionButton
+var remove_btn: ActionButton
 var size_btn: Button
 var size_chip: Label
 var _toast_timer := 0.0
@@ -80,6 +86,13 @@ func _on_setting_changed(key: String, _value: Variant) -> void:
 
 func bind(w: Node) -> void:
 	world = w
+	if build_catalog and world:
+		build_catalog.configure(
+			"house",
+			null,
+			world.build_session if world.get("build_session") else null,
+			world.build_history if world.get("build_history") else null
+		)
 
 
 func _sb(bg: Color, radius := 16, border := Color(0, 0, 0, 0), border_w := 0) -> StyleBoxFlat:
@@ -226,18 +239,20 @@ func _build() -> void:
 	hint.visible = _debug_hud
 	root.add_child(hint)
 
-	catalog_panel = _panel(root, "Furniture", Vector2(540, 440))
-	var grid := GridContainer.new()
-	grid.name = "Grid"
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
-	catalog_panel.get_node("Margin/VBox").add_child(grid)
-	var close_c := Button.new()
-	close_c.text = "Close"
-	_theme_button(close_c, Vector2(160, 48), COL_CORAL)
-	close_c.pressed.connect(func(): panels.close("catalog"))
-	catalog_panel.get_node("Margin/VBox").add_child(close_c)
+	build_catalog = BuildCatalogPanel.new()
+	build_catalog.name = "BuildCatalog"
+	build_catalog.set_anchors_preset(Control.PRESET_CENTER)
+	build_catalog.offset_left = -280
+	build_catalog.offset_top = -240
+	build_catalog.offset_right = 280
+	build_catalog.offset_bottom = 240
+	build_catalog.closed_requested.connect(func(): panels.close("catalog"))
+	build_catalog.item_selected.connect(_on_catalog_item_selected)
+	build_catalog.item_drag_started.connect(_on_catalog_drag_started)
+	build_catalog.item_drag_ended.connect(_on_catalog_drag_ended)
+	build_catalog.tool_pressed.connect(_on_catalog_tool)
+	root.add_child(build_catalog)
+	catalog_panel = build_catalog
 
 	visit_panel = _panel(root, "Visit a friend", Vector2(420, 260))
 	var vv: VBoxContainer = visit_panel.get_node("Margin/VBox")
@@ -362,9 +377,9 @@ func _build_touch(root: Control) -> void:
 	cluster.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	touch_layer.add_child(cluster)
 
-	place_btn = _action_btn("Place", COL_SKY, "res://assets/ui/icons/icon_place.png")
-	rotate_btn = _action_btn("Rotate", COL_PINK, "res://assets/ui/icons/icon_rotate.png")
-	cancel_btn = _action_btn("Cancel", COL_CORAL, "res://assets/ui/icons/icon_break.png")
+	place_btn = _action_btn("Place", COL_SKY, BuildToolIcons.PLACE)
+	rotate_btn = _action_btn("Rotate", COL_PINK, BuildToolIcons.ROTATE)
+	cancel_btn = _action_btn("Cancel", COL_CORAL, BuildToolIcons.CANCEL)
 	jump_btn = _action_btn("Jump", COL_GREEN, "res://assets/ui/icons/icon_jump.png")
 	door_btn = _action_btn("Door", COL_ACCENT, "res://assets/ui/icons/icon_place.png")
 	door_btn.visible = false
@@ -372,6 +387,11 @@ func _build_touch(root: Control) -> void:
 		if world:
 			world.toggle_nearest_door()
 	)
+	move_btn = _action_btn("Move", COL_ACCENT, BuildToolIcons.MOVE)
+	copy_btn = _action_btn("Copy", COL_SKY, BuildToolIcons.COPY)
+	remove_btn = _action_btn("Remove", COL_CORAL, BuildToolIcons.REMOVE)
+	undo_btn = _action_btn("Undo", COL_PINK, BuildToolIcons.UNDO)
+	redo_btn = _action_btn("Redo", COL_ACCENT, BuildToolIcons.REDO)
 	place_btn.pressed.connect(func():
 		if world and world.build.active:
 			world.build.confirm()
@@ -392,10 +412,30 @@ func _build_touch(root: Control) -> void:
 		if world:
 			world.player.touch_jump()
 	)
-	for btn in [place_btn, rotate_btn, cancel_btn, jump_btn]:
+	move_btn.pressed.connect(func():
+		if world and world.has_method("start_move_selected"):
+			world.start_move_selected()
+	)
+	copy_btn.pressed.connect(func():
+		if world and world.has_method("start_copy_selected"):
+			world.start_copy_selected()
+	)
+	remove_btn.pressed.connect(func():
+		if world and world.has_method("remove_selected"):
+			world.remove_selected()
+	)
+	undo_btn.pressed.connect(func():
+		if world and world.has_method("undo_build"):
+			world.undo_build()
+	)
+	redo_btn.pressed.connect(func():
+		if world and world.has_method("redo_build"):
+			world.redo_build()
+	)
+	for btn in [place_btn, rotate_btn, cancel_btn, jump_btn, move_btn, copy_btn, remove_btn, undo_btn, redo_btn]:
 		cluster.add_child(btn)
-	cluster.set_meta("buttons", [place_btn, rotate_btn, cancel_btn, jump_btn])
-	# Contextual: sits left of the action column when a door is in reach.
+	cluster.set_meta("buttons", [place_btn, rotate_btn, cancel_btn, jump_btn, move_btn, copy_btn, remove_btn, undo_btn, redo_btn])
+	# Contextual: sits left of the action grid when a door is in reach.
 	touch_layer.add_child(door_btn)
 
 
@@ -455,39 +495,46 @@ func _layout_touch() -> void:
 	var cluster: Control = touch_layer.get_node_or_null("HouseActions")
 	if cluster == null:
 		return
-	var btn_sz := 78.0 * scale
-	var gap := 10.0 * scale
-	var stack_h := btn_sz * 4.0 + gap * 3.0
+	var btn_sz := 64.0 * scale
+	var gap := 6.0 * scale
+	var cols := 3
+	var rows := 3
+	var cluster_w := btn_sz * cols + gap * (cols - 1) + 8.0
+	var stack_h := btn_sz * rows + gap * (rows - 1) + 8.0
 	cluster.anchor_left = 1.0
 	cluster.anchor_top = 1.0
 	cluster.anchor_right = 1.0
 	cluster.anchor_bottom = 1.0
-	cluster.offset_left = -btn_sz - 16.0
-	cluster.offset_top = -stack_h - 16.0
-	cluster.offset_right = -12.0
-	cluster.offset_bottom = -12.0
-	var y := 0.0
-	for btn in [place_btn, rotate_btn, cancel_btn, jump_btn]:
+	cluster.offset_left = -cluster_w - 10.0
+	cluster.offset_top = -stack_h - 14.0
+	cluster.offset_right = -10.0
+	cluster.offset_bottom = -10.0
+	# 3×3 grid: Move/Place/Copy · Rotate/Undo/Redo · Remove/Cancel/Jump
+	var order: Array = [move_btn, place_btn, copy_btn, rotate_btn, undo_btn, redo_btn, remove_btn, cancel_btn, jump_btn]
+	for i in order.size():
+		var btn: ActionButton = order[i]
 		if btn == null:
 			continue
+		var col := i % cols
+		var row := int(i / cols)
 		btn.button_size = btn_sz
 		btn.custom_minimum_size = Vector2(btn_sz, btn_sz)
 		btn.size = Vector2(btn_sz, btn_sz)
-		btn.position = Vector2(0, y)
+		btn.position = Vector2(col * (btn_sz + gap), row * (btn_sz + gap))
 		if btn.has_method("_layout_children"):
 			btn._layout_children()
 		if btn.has_method("_apply_style"):
 			btn._apply_style(false)
-		y += btn_sz + gap
 	if door_btn:
+		var door_right := -cluster_w - 10.0 - gap * 2.0
 		door_btn.button_size = btn_sz
 		door_btn.custom_minimum_size = Vector2(btn_sz, btn_sz)
 		door_btn.size = Vector2(btn_sz, btn_sz)
 		door_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-		door_btn.offset_left = -btn_sz * 2.0 - 32.0
-		door_btn.offset_right = -btn_sz - 32.0
-		door_btn.offset_top = -btn_sz - 16.0
-		door_btn.offset_bottom = -16.0
+		door_btn.offset_left = door_right - btn_sz
+		door_btn.offset_right = door_right
+		door_btn.offset_top = -btn_sz - 14.0
+		door_btn.offset_bottom = -14.0
 		if door_btn.has_method("_layout_children"):
 			door_btn._layout_children()
 
@@ -644,22 +691,81 @@ func open_catalog() -> void:
 
 
 func _populate_catalog() -> void:
-	var grid: GridContainer = catalog_panel.get_node("Margin/VBox/Grid")
-	for c in grid.get_children():
-		c.queue_free()
-	for id in FurnitureDB.all_ids():
-		var b := Button.new()
-		b.text = FurnitureDB.display_name(id)
-		b.icon = FurnitureDB.make_preview_texture(id)
-		b.expand_icon = true
-		_theme_button(b, Vector2(150, 72), COL_PANEL)
-		var def_id := id
-		b.pressed.connect(func():
+	if build_catalog == null:
+		return
+	var hist: BuildHistory = world.build_history if world else null
+	var sess: BuildSession = world.build_session if world else null
+	build_catalog.configure("house", null, sess, hist)
+	build_catalog.refresh()
+
+
+func _on_catalog_item_selected(entry: Dictionary) -> void:
+	## Tap selects and starts preview; does not place until world tap / Place.
+	panels.close("catalog")
+	if world == null:
+		return
+	var kind := str(entry.get("kind", ""))
+	var id := str(entry.get("id", ""))
+	if kind == "furniture":
+		world.start_place(id)
+
+
+func _on_catalog_drag_started(entry: Dictionary, pointer_id: int) -> void:
+	if world == null:
+		return
+	var id := str(entry.get("id", ""))
+	if str(entry.get("kind", "")) != "furniture":
+		return
+	panels.close("catalog")
+	world.start_place(id)
+	if world.build_session:
+		world.build_session.begin_drag(pointer_id)
+
+
+func _on_catalog_drag_ended(entry: Dictionary, screen_pos: Vector2, over_ui: bool) -> void:
+	if world == null:
+		return
+	if world.build_session:
+		world.build_session.end_drag()
+	if over_ui:
+		world.cancel_placement()
+		return
+	world.placement.set_aim_screen(screen_pos)
+	# Let physics update the preview under the drop point, then confirm once.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	if world.placement.mode == PlacementController.Mode.IDLE:
+		return
+	if world.placement.is_preview_valid():
+		world.placement.confirm()
+	else:
+		world.cancel_placement()
+	world.placement.clear_aim_screen()
+
+
+func _on_catalog_tool(tool_id: String) -> void:
+	if world == null:
+		return
+	match tool_id:
+		"rotate":
+			world.placement.rotate_preview(1)
+		"move":
+			world.start_move_selected()
 			panels.close("catalog")
-			if world:
-				world.start_place(def_id)
-		)
-		grid.add_child(b)
+		"copy":
+			world.start_copy_selected()
+			panels.close("catalog")
+		"remove":
+			world.remove_selected()
+		"undo":
+			world.undo_build()
+		"redo":
+			world.redo_build()
+		"cancel":
+			world.cancel_placement()
+			panels.close("catalog")
+	if build_catalog:
+		build_catalog.refresh()
 
 
 func open_build_panel() -> void:

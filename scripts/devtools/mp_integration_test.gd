@@ -25,6 +25,7 @@ func _ready() -> void:
 
 	await _scenario_core_collab()
 	await _scenario_move_rotate_remove()
+	await _scenario_restore_instance_id_on_undo_remove()
 	await _scenario_duplicate_stale_concurrent()
 	await _scenario_restart_and_reconnect()
 	await _scenario_disconnect_mid_edit()
@@ -163,6 +164,48 @@ func _scenario_move_rotate_remove() -> void:
 	_send(a, NetProtocol.C_FURN_REMOVE, {"instance_id": iid, "revision": rev}, "op_mrr_rm")
 	var removed := await _wait_type(b, NetProtocol.S_FURN_REMOVED, 2.0)
 	_assert(str(removed.get("p", {}).get("instance_id", "")) == iid, "remove synced")
+	await _close(a)
+	await _close(b)
+
+
+func _scenario_restore_instance_id_on_undo_remove() -> void:
+	print("-- restore instance_id after remove (undo identity) --")
+	var a := await _connect_client()
+	var b := await _connect_client()
+	await _hello(a, "alice_restore", "Alice")
+	await _hello(b, "bob_restore", "Bob")
+	_send(a, NetProtocol.C_ENTER_OWN)
+	var sa := await _wait_type(a, NetProtocol.S_HOUSE_STATE, 2.0)
+	var invite := str(sa.get("p", {}).get("house", {}).get("invite_code", ""))
+	var rev := int(sa.get("p", {}).get("house", {}).get("revision", 0))
+	_send(b, NetProtocol.C_JOIN_INVITE, {"code": invite})
+	await _wait_type(b, NetProtocol.S_HOUSE_STATE, 2.0)
+	_send(a, NetProtocol.C_SET_COLLAB, {"enabled": true})
+	var c := await _wait_type(b, NetProtocol.S_COLLAB_CHANGED, 2.0)
+	rev = int(c.get("p", {}).get("revision", rev + 1))
+	_send(a, NetProtocol.C_FURN_PLACE, {"def_id": "chair", "cell_x": 2, "cell_z": 2, "rotation": 0, "revision": rev}, "op_restore_place")
+	var placed := await _wait_type(a, NetProtocol.S_FURN_UPSERT, 2.0)
+	var iid := str(placed.get("p", {}).get("instance", {}).get("instance_id", ""))
+	rev = int(placed.get("p", {}).get("revision", rev + 1))
+	_assert(iid != "", "placed instance id")
+	_send(a, NetProtocol.C_FURN_REMOVE, {"instance_id": iid, "revision": rev}, "op_restore_rm")
+	var removed := await _wait_type(a, NetProtocol.S_FURN_REMOVED, 2.0)
+	rev = int(removed.get("p", {}).get("revision", rev + 1))
+	_assert(str(removed.get("p", {}).get("instance_id", "")) == iid, "remove kept id in event")
+	# Undo-of-remove: place with the same instance_id; authority must restore it.
+	_send(a, NetProtocol.C_FURN_PLACE, {
+		"def_id": "chair", "cell_x": 2, "cell_z": 2, "rotation": 0, "revision": rev, "instance_id": iid,
+	}, "op_restore_undo")
+	var restored := await _wait_type(a, NetProtocol.S_FURN_UPSERT, 2.0)
+	var restored_iid := str(restored.get("p", {}).get("instance", {}).get("instance_id", ""))
+	_assert(restored_iid == iid, "undo-of-remove preserves instance_id")
+	rev = int(restored.get("p", {}).get("revision", rev + 1))
+	# Invented / never-removed ids must be refused.
+	_send(a, NetProtocol.C_FURN_PLACE, {
+		"def_id": "lamp", "cell_x": 4, "cell_z": 4, "rotation": 0, "revision": rev, "instance_id": "furn_invented_xyz",
+	}, "op_restore_reject")
+	var reject := await _wait_type(a, NetProtocol.S_ERROR, 2.0)
+	_assert(str(reject.get("p", {}).get("code", "")) == "reject", "unknown restore id rejected")
 	await _close(a)
 	await _close(b)
 
