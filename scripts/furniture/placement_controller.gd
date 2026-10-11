@@ -8,13 +8,17 @@ signal edit_move_requested(instance_id: String, cell: Vector2i, rotation: int)
 signal edit_remove_requested(instance_id: String)
 signal selection_changed(instance_id: String)
 
-enum Mode { IDLE, PLACE, MOVE }
+enum Mode { IDLE, PLACE, MOVE, COPY }
 
 var mode: int = Mode.IDLE
 var def_id: String = ""
 var instance_id: String = ""
 var rotation_deg: int = 0
 var can_decorate: bool = false
+## When true, confirm() keeps PLACE/COPY mode so kids can keep tapping spots.
+var repeat_place: bool = true
+## Optional external aim (screen pos) for drag-and-place; Vector2.INF = use mouse/crosshair.
+var aim_screen: Vector2 = Vector2.INF
 
 var grid_origin: Vector3 = Vector3.ZERO
 var floor_y: float = 0.0
@@ -73,10 +77,29 @@ func begin_place(id: String) -> void:
 	def_id = id
 	instance_id = ""
 	rotation_deg = 0
+	aim_screen = Vector2.INF
 	_last_reason = FurnitureValidator.Reason.OK
 	_show_grid(true)
 	_build_preview()
-	GameState.toast("Place " + FurnitureDB.display_name(id) + " — click or Place")
+	GameState.toast("Tap a spot to place " + FurnitureDB.display_name(id))
+
+
+func begin_copy(visual: FurnitureVisual) -> void:
+	## Duplicate via place rules — does not hide or move the source.
+	if not can_decorate or visual == null:
+		return
+	if not FurnitureDB.has_id(visual.def_id):
+		return
+	cancel()
+	mode = Mode.COPY
+	def_id = visual.def_id
+	instance_id = ""
+	rotation_deg = visual.rotation_deg
+	aim_screen = Vector2.INF
+	_last_reason = FurnitureValidator.Reason.OK
+	_show_grid(true)
+	_build_preview()
+	GameState.toast("Copy " + FurnitureDB.display_name(def_id) + " — tap a spot")
 
 
 func begin_move(visual: FurnitureVisual) -> void:
@@ -87,6 +110,7 @@ func begin_move(visual: FurnitureVisual) -> void:
 	def_id = visual.def_id
 	instance_id = visual.instance_id
 	rotation_deg = visual.rotation_deg
+	aim_screen = Vector2.INF
 	visual.visible = false
 	_show_grid(true)
 	_build_preview()
@@ -101,6 +125,7 @@ func cancel() -> void:
 	mode = Mode.IDLE
 	def_id = ""
 	instance_id = ""
+	aim_screen = Vector2.INF
 	placement_cancelled.emit()
 
 
@@ -112,22 +137,49 @@ func rotate_preview(steps: int = 1) -> void:
 	_update_preview_xform()
 
 
-func confirm() -> void:
+func set_aim_screen(pos: Vector2) -> void:
+	aim_screen = pos
+
+
+func clear_aim_screen() -> void:
+	aim_screen = Vector2.INF
+
+
+func confirm() -> bool:
+	## Returns true when a place/move/copy request was emitted.
 	if mode == Mode.IDLE:
-		return
+		return false
 	if not _valid:
 		var why := FurnitureValidator.reason_text(_last_reason)
 		if why == "ok" or why == "":
 			why = "Can't place there"
 		GameState.toast(why)
-		return
-	if mode == Mode.PLACE:
+		return false
+	var keep := repeat_place and (mode == Mode.PLACE or mode == Mode.COPY)
+	var keep_def := def_id
+	var keep_rot := rotation_deg
+	var keep_mode := mode
+	if mode == Mode.PLACE or mode == Mode.COPY:
 		placement_requested.emit(def_id, _anchor, rotation_deg)
 	elif mode == Mode.MOVE:
 		edit_move_requested.emit(instance_id, _anchor, rotation_deg)
-	_clear_preview()
-	_show_grid(false)
-	mode = Mode.IDLE
+		keep = false
+	if keep:
+		# Stay in place/copy with a fresh preview (no permanent ghost leak).
+		def_id = keep_def
+		rotation_deg = keep_rot
+		mode = keep_mode
+		instance_id = ""
+		_build_preview()
+		_show_grid(true)
+	else:
+		_clear_preview()
+		_show_grid(false)
+		mode = Mode.IDLE
+		def_id = ""
+		instance_id = ""
+		aim_screen = Vector2.INF
+	return true
 
 
 func last_reason() -> int:
@@ -311,7 +363,9 @@ func _update_preview_xform() -> void:
 func _floor_hit() -> Vector3:
 	var vp := get_viewport()
 	var mouse := vp.get_mouse_position()
-	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+	if aim_screen != Vector2.INF:
+		mouse = aim_screen
+	elif Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var rect := vp.get_visible_rect()
 		mouse = rect.size * 0.5
 	var from := camera.project_ray_origin(mouse)

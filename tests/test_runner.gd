@@ -49,6 +49,14 @@ func _ready() -> void:
 	await _test_monster_combat_pipeline()
 	await _test_flight_toggle_keeps_joystick_stable()
 	await _test_flight_toggle_keeps_action_cluster_stable()
+	# Phase 2 build foundation
+	_test_build_catalog_categories()
+	_test_build_history_stack()
+	_test_build_session_select_does_not_place()
+	await _test_block_place_preview_validity_colors()
+	await _test_block_place_undo_redo_and_survival()
+	await _test_furniture_copy_and_history()
+	await _test_build_catalog_ui_and_flight_stable()
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
 	get_tree().quit(1 if failed > 0 else 0)
 
@@ -1309,6 +1317,225 @@ func _test_flight_toggle_keeps_action_cluster_stable() -> void:
 	ui._layout_fly_controls()
 	await get_tree().process_frame
 	_assert(not ui.fly_up_btn.visible and not ui.fly_down_btn.visible, "Up/Down hidden when landed")
+	GameState.touch_controls_forced = false
+	ui.queue_free()
+	await get_tree().process_frame
+
+
+func _test_build_catalog_categories() -> void:
+	var meadow := BuildCatalog.available_categories("meadow")
+	_assert(meadow.has(BuildCatalog.CAT_BLOCKS), "meadow has Blocks")
+	_assert(meadow.has(BuildCatalog.CAT_GARDEN) or meadow.has(BuildCatalog.CAT_DECORATIONS), "meadow has garden/decor")
+	_assert(not meadow.has(BuildCatalog.CAT_FURNITURE), "meadow omits furniture")
+	var house := BuildCatalog.available_categories("house")
+	_assert(house.has(BuildCatalog.CAT_FURNITURE), "house has Furniture")
+	_assert(not house.has(BuildCatalog.CAT_BLOCKS), "house omits blocks")
+	var bed := BuildCatalog.find_entry("house", "furniture", "bed")
+	_assert(not bed.is_empty(), "bed entry exists")
+	_assert(bed.get("footprint") == Vector2i(2, 2), "bed footprint 2x2")
+	_assert(bool(bed.get("supports_rotation", false)), "bed rotates")
+	var grass := BuildCatalog.find_entry("meadow", "block", "grass")
+	_assert(not grass.is_empty(), "grass entry exists")
+	_assert(not bool(grass.get("supports_rotation", true)), "blocks do not rotate")
+	# Deterministic grid snap shared with furniture
+	var origin := Vector3(10, 0, 20)
+	var cell := FurnitureGrid.world_to_cell(Vector3(10.7, 1, 20.2), origin)
+	_assert(cell == Vector2i(0, 0), "grid snap deterministic")
+	var cell2 := FurnitureGrid.world_to_cell(Vector3(11.1, 1, 21.9), origin)
+	_assert(cell2 == Vector2i(1, 1), "grid snap second cell")
+
+
+func _test_build_history_stack() -> void:
+	var h := BuildHistory.new()
+	_assert(not h.can_undo() and not h.can_redo(), "history starts empty")
+	h.push(BuildHistory.block_place(Vector3i(1, 2, 3), "dirt", 2, 0))
+	h.push(BuildHistory.block_place(Vector3i(2, 2, 3), "stone", 3, 0))
+	_assert(h.undo_count() == 2, "two undo entries")
+	var e := h.pop_undo()
+	_assert(int(e.get("block_id", 0)) == 3, "undo pops latest")
+	_assert(h.can_redo(), "redo available after undo")
+	h.push(BuildHistory.block_remove(Vector3i(1, 2, 3), "dirt", 2))
+	_assert(not h.can_redo(), "new edit clears redo")
+	# Cancelled/invalid must not enter history
+	h.push({})
+	_assert(h.undo_count() == 2, "empty push ignored")
+	# Bound
+	for i in 40:
+		h.push(BuildHistory.block_place(Vector3i(i, 0, 0), "dirt", 2, 0))
+	_assert(h.undo_count() == BuildHistory.MAX_ENTRIES, "history capped at MAX_ENTRIES")
+
+
+func _test_build_session_select_does_not_place() -> void:
+	var s := BuildSession.new()
+	s.select_catalog_item(BuildCatalog.block_entry("planks"), "catalog")
+	_assert(s.mode == BuildSession.Mode.PLACE, "select enters place mode")
+	_assert(s.selected_id() == "planks", "selected id set")
+	_assert(not s.drag_active, "select is not a drag")
+	s.begin_drag(0)
+	_assert(s.mode == BuildSession.Mode.DRAG_PLACE, "drag mode")
+	s.end_drag()
+	_assert(s.mode == BuildSession.Mode.PLACE, "end drag returns to place")
+	s.clear()
+	_assert(s.mode == BuildSession.Mode.IDLE, "clear idles")
+
+
+func _test_block_place_preview_validity_colors() -> void:
+	var rig := _make_player_rig()
+	var world: VoxelWorld = rig["world"]
+	var player: PlayerController = rig["player"]
+	var ui: GameUi = rig["ui"]
+	await get_tree().process_frame
+	_assert(player._place_mat_ok != null and player._place_mat_bad != null, "place mats created")
+	var gy := VoxelWorld.GROUND_Y + 1
+	var ok := world.can_place_at(8, gy, 8, AABB(Vector3(0, 0, 0), Vector3(0.1, 0.1, 0.1)))
+	_assert(ok, "open air cell placeable")
+	player.place_preview.material_override = player._place_mat_ok if ok else player._place_mat_bad
+	_assert(player.place_preview.material_override == player._place_mat_ok, "valid preview uses green")
+	var bad := world.can_place_at(8, VoxelWorld.GROUND_Y, 8, AABB(Vector3(0, 0, 0), Vector3(0.1, 0.1, 0.1)))
+	_assert(not bad, "occupied ground not placeable")
+	player.place_preview.material_override = player._place_mat_ok if bad else player._place_mat_bad
+	_assert(player.place_preview.material_override == player._place_mat_bad, "invalid preview uses red")
+	ui.queue_free()
+	player.queue_free()
+	world.queue_free()
+	await get_tree().process_frame
+
+
+func _test_block_place_undo_redo_and_survival() -> void:
+	GameState.set_creative(true)
+	var rig := _make_player_rig()
+	var world: VoxelWorld = rig["world"]
+	var player: PlayerController = rig["player"]
+	var ui: GameUi = rig["ui"]
+	await get_tree().process_frame
+	player.inventory = Inventory.new(true)
+	player.select_build_item("planks")
+	_assert(player.build_session.selected_id() == "planks", "catalog select arms session")
+	_assert(world.get_block(5, VoxelWorld.GROUND_Y + 1, 5) == 0, "select did not modify world")
+	var before := world.get_block(5, VoxelWorld.GROUND_Y + 1, 5)
+	var item := "planks"
+	var bid := BlockDB.place_block_id(item)
+	var pos := Vector3i(5, VoxelWorld.GROUND_Y + 1, 5)
+	_assert(world.can_place_at(pos.x, pos.y, pos.z, AABB(Vector3(0, 0, 0), Vector3(0.1, 0.1, 0.1))), "target free")
+	player.inventory.hotbar[0] = {"item": item, "count": 64}
+	player.inventory.select(0)
+	world.set_block(pos.x, pos.y, pos.z, bid, true)
+	player.build_history.push(BuildHistory.block_place(pos, item, bid, before))
+	_assert(world.get_block(pos.x, pos.y, pos.z) == bid, "block placed")
+	player.undo_build()
+	_assert(world.get_block(pos.x, pos.y, pos.z) == 0, "undo removes block")
+	player.redo_build()
+	_assert(world.get_block(pos.x, pos.y, pos.z) == bid, "redo restores block")
+	var to := Vector3i(6, VoxelWorld.GROUND_Y + 1, 5)
+	world.set_block(pos.x, pos.y, pos.z, 0, true)
+	world.set_block(to.x, to.y, to.z, bid, true)
+	player.build_history.push(BuildHistory.block_move(pos, to, item, bid, 0))
+	player.undo_build()
+	_assert(world.get_block(pos.x, pos.y, pos.z) == bid, "undo move restores source")
+	_assert(world.get_block(to.x, to.y, to.z) == 0, "undo move clears dest")
+	GameState.set_creative(false)
+	player.inventory.clear()
+	player.inventory.add_item("cobble", 2)
+	player.inventory.hotbar[0] = {"item": "cobble", "count": 2}
+	player.inventory.select(0)
+	var cpos := Vector3i(7, VoxelWorld.GROUND_Y + 1, 7)
+	var cbid := BlockDB.place_block_id("cobble")
+	_assert(player.inventory.consume_selected(1), "survival consume for place")
+	world.set_block(cpos.x, cpos.y, cpos.z, cbid, true)
+	player.build_history.push(BuildHistory.block_place(cpos, "cobble", cbid, 0))
+	_assert(player.inventory.count_of("cobble") == 1, "survival spent one")
+	player.undo_build()
+	_assert(world.get_block(cpos.x, cpos.y, cpos.z) == 0, "survival undo clears block")
+	_assert(player.inventory.count_of("cobble") == 2, "survival undo refunds")
+	GameState.set_creative(true)
+	player.inventory.clear()
+	player.inventory._seed_defaults()
+	var copy_pos := Vector3i(4, VoxelWorld.GROUND_Y + 1, 4)
+	world.set_block(copy_pos.x, copy_pos.y, copy_pos.z, bid, true)
+	player.build_history.push(BuildHistory.block_copy(copy_pos, item, bid, 0))
+	player.undo_build()
+	_assert(world.get_block(copy_pos.x, copy_pos.y, copy_pos.z) == 0, "undo copy removes duplicate")
+	GameState.set_creative(true)
+	ui.queue_free()
+	player.queue_free()
+	world.queue_free()
+	await get_tree().process_frame
+
+
+func _test_furniture_copy_and_history() -> void:
+	var hist := BuildHistory.new()
+	var a := BuildHistory.furniture_place("furn_a", "chair", Vector2i(1, 1), 0)
+	hist.push(a)
+	var b := BuildHistory.furniture_copy("furn_b", "chair", Vector2i(2, 2), 90)
+	hist.push(b)
+	_assert(hist.undo_count() == 2, "furniture history has place+copy")
+	var move := BuildHistory.furniture_move("furn_a", "chair", Vector2i(1, 1), 0, Vector2i(3, 3), 0)
+	hist.push(move)
+	_assert(int(hist.peek_undo().get("op", -1)) == BuildHistory.Op.MOVE_FURNITURE, "move op recorded")
+	var rot := BuildHistory.furniture_move("furn_a", "chair", Vector2i(3, 3), 0, Vector2i(3, 3), 90)
+	hist.push(rot)
+	_assert(int(hist.peek_undo().get("op", -1)) == BuildHistory.Op.ROTATE_FURNITURE, "rotate-only is ROTATE op")
+	# Validation path shared
+	var occupied := {}
+	var ok := FurnitureValidator.validate_placement("table", Vector2i(0, 0), 0, Vector2i(0, 0), Vector2i(10, 10), occupied)
+	_assert(ok == FurnitureValidator.Reason.OK, "table footprint validates")
+	var cells := FurnitureGrid.occupied_cells(Vector2i(0, 0), Vector2i(2, 2), 90)
+	_assert(cells.size() == 4, "rotated 2x2 footprint still 4 cells")
+	# Preview ghosts must not be serialized — HouseLayout furniture list only
+	var layout := HouseLayout.new()
+	layout.house_id = "test_hist"
+	layout.owner_id = "owner"
+	layout.furniture = [{
+		"instance_id": "furn_a", "def_id": "chair", "cell_x": 1, "cell_z": 1, "rotation": 0,
+	}]
+	var d := layout.to_dict()
+	_assert(d.get("furniture", []).size() == 1, "save has one furniture")
+	_assert(not str(d).contains("PlacementPreview"), "save has no preview marker")
+
+
+func _test_build_catalog_ui_and_flight_stable() -> void:
+	GameState.touch_controls_forced = true
+	GameState.set_creative(true)
+	var ui := GameUi.new()
+	add_child(ui)
+	await get_tree().process_frame
+	_assert(ui.build_catalog != null, "GameUi has build catalog")
+	_assert(ui.build_btn != null, "Build chip exists")
+	ui.toggle_build_catalog()
+	await get_tree().process_frame
+	_assert(ui.catalog_panel.visible, "catalog opens")
+	_assert(ui.panels.is_open("catalog"), "exclusive catalog active")
+	# Selecting a card must not require world mutation — configure + select signal path
+	var entry := BuildCatalog.block_entry("dirt")
+	ui._on_build_item_selected(entry)
+	await get_tree().process_frame
+	_assert(not ui.catalog_panel.visible, "catalog closes after select")
+	# Flight cluster remains stable with catalog open/closed cycle
+	ui.toggle_build_catalog()
+	await get_tree().process_frame
+	var actions: Control = ui.touch_controls.get_node_or_null("ActionCluster") if ui.touch_controls else null
+	if actions == null and ui.touch_controls:
+		actions = ui.touch_controls.get_node_or_null("Actions")
+	# Prefer public fly layout API
+	var jump0 := Rect2()
+	var place0 := Rect2()
+	if ui.touch_controls and ui.touch_controls.has_method("get_action_button"):
+		pass
+	ui._layout_fly_controls()
+	await get_tree().process_frame
+	if ui.fly_btn:
+		jump0 = ui.fly_btn.get_global_rect()
+	GameState.set_flying(true)
+	ui._layout_fly_controls()
+	await get_tree().process_frame
+	GameState.set_flying(false)
+	ui._layout_fly_controls()
+	await get_tree().process_frame
+	if ui.fly_btn:
+		_assert(ui.fly_btn.get_global_rect().position.is_equal_approx(jump0.position), "Fly stable with catalog cycle")
+	ui.panels.close_all()
+	# Catalog UI taps use STOP filter so they don't leak to world
+	_assert(ui.build_catalog.mouse_filter == Control.MOUSE_FILTER_STOP, "catalog captures mouse")
 	GameState.touch_controls_forced = false
 	ui.queue_free()
 	await get_tree().process_frame

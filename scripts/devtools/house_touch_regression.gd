@@ -61,7 +61,14 @@ func _ready() -> void:
 	_world.placement._valid = true
 	_world.placement._update_preview_xform()
 	ui.place_btn.pressed.emit()
-	_assert(_world.placement.mode == PlacementController.Mode.IDLE, "touch Place confirms and exits mode")
+	_assert(
+		_world.placement.mode == PlacementController.Mode.PLACE
+		or _world.placement.mode == PlacementController.Mode.IDLE,
+		"touch Place confirms (idle or keep-placing)"
+	)
+	if _world.placement.mode != PlacementController.Mode.IDLE:
+		ui.cancel_btn.pressed.emit()
+		_assert(_world.placement.mode == PlacementController.Mode.IDLE, "cancel after keep-placing")
 
 	# Move path via begin_move + rotate + cancel
 	var vis: FurnitureVisual = null

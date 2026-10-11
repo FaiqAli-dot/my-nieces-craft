@@ -66,6 +66,10 @@ func _ready() -> void:
 		var s2demo := Node.new()
 		s2demo.set_script(load("res://scripts/devtools/s2_demo_driver.gd"))
 		add_child(s2demo)
+	if OS.get_environment("COZY_PHASE2_BUILD_SHOTS") == "1":
+		var p2shots := Node.new()
+		p2shots.set_script(load("res://scripts/devtools/phase2_build_shots.gd"))
+		add_child(p2shots)
 	# Kid-friendly mode pick when there is no save yet (skip under automated tests).
 	var skip_mode_ui := (
 		OS.get_environment("COZY_SMOKE") == "1"
@@ -80,6 +84,7 @@ func _ready() -> void:
 		or OS.get_environment("COZY_P1_TEST") == "1"
 		or OS.get_environment("COZY_P1_SHOTS") == "1"
 		or OS.get_environment("COZY_P1_DEMO") == "1"
+		or OS.get_environment("COZY_PHASE2_BUILD_SHOTS") == "1"
 		or OS.get_environment("COZY_SKIP_MODE_SELECT") == "1"
 	)
 	if not skip_mode_ui and not SaveGame.save_exists():

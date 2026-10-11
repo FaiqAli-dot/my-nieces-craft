@@ -48,6 +48,15 @@ var _attack_cooldown := 0.0
 
 var world: VoxelWorld
 var ui: CanvasLayer
+## Phase 2 shared build foundation (meadow / voxel).
+var build_history := BuildHistory.new()
+var build_session := BuildSession.new()
+var _place_mat_ok: StandardMaterial3D
+var _place_mat_bad: StandardMaterial3D
+var _catalog_place_item: String = "" ## when set, place uses this instead of hotbar
+var _move_from_block := Vector3i(-9999, 0, 0)
+var _move_block_id := 0
+var _ignore_history := false
 
 func _ready() -> void:
 	if inventory == null:
@@ -106,11 +115,21 @@ func _setup_highlights() -> void:
 	var pbox := BoxMesh.new()
 	pbox.size = Vector3(1.01, 1.01, 1.01)
 	place_preview.mesh = pbox
-	var pmat := StandardMaterial3D.new()
-	pmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	pmat.albedo_color = Color(0.4, 1.0, 0.5, 0.3)
-	pmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	place_preview.material_override = pmat
+	_place_mat_ok = StandardMaterial3D.new()
+	_place_mat_ok.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_place_mat_ok.albedo_color = Color(0.2, 0.95, 0.35, 0.42)
+	_place_mat_ok.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_place_mat_ok.emission_enabled = true
+	_place_mat_ok.emission = Color(0.15, 1.0, 0.3)
+	_place_mat_ok.emission_energy_multiplier = 0.55
+	_place_mat_bad = StandardMaterial3D.new()
+	_place_mat_bad.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_place_mat_bad.albedo_color = Color(0.98, 0.15, 0.12, 0.45)
+	_place_mat_bad.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_place_mat_bad.emission_enabled = true
+	_place_mat_bad.emission = Color(1.0, 0.2, 0.15)
+	_place_mat_bad.emission_energy_multiplier = 0.55
+	place_preview.material_override = _place_mat_ok
 	place_preview.visible = false
 
 
@@ -190,6 +209,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		GameState.toggle_creative()
 	if event.is_action_pressed("toggle_flight"):
 		GameState.toggle_flying()
+	if event is InputEventKey and event.pressed and event.ctrl_pressed and event.physical_keycode == KEY_Z and not event.shift_pressed:
+		undo_build()
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.pressed and event.ctrl_pressed and (event.physical_keycode == KEY_Y or (event.physical_keycode == KEY_Z and event.shift_pressed)):
+		redo_build()
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.pressed and event.physical_keycode == KEY_ESCAPE and build_session.is_busy():
+		clear_build_selection()
+		get_viewport().set_input_as_handled()
+		return
 	for i in Inventory.HOTBAR_SIZE:
 		if event.is_action_pressed("hotbar_%d" % (i + 1)):
 			inventory.select(i)
@@ -319,9 +350,21 @@ func _update_targeting() -> void:
 		floori((hit_pos + normal * 0.01).y),
 		floori((hit_pos + normal * 0.01).z)
 	)
-	if world.can_place_at(place_pos.x, place_pos.y, place_pos.z, player_aabb()):
-		place_preview.visible = true
-		place_preview.global_position = Vector3(place_pos) + Vector3(0.5, 0.5, 0.5)
+	var item := _active_place_item()
+	var want_preview := item != "" and BlockDB.is_placeable(item)
+	if build_session.mode == BuildSession.Mode.MOVE and _move_block_id != 0:
+		want_preview = true
+	if not want_preview and not build_session.is_busy():
+		# Legacy hotbar aim ghost when a placeable is selected.
+		want_preview = inventory != null and BlockDB.is_placeable(inventory.selected_item())
+		item = inventory.selected_item() if inventory else ""
+	if not want_preview:
+		return
+	var can := world.can_place_at(place_pos.x, place_pos.y, place_pos.z, player_aabb())
+	# Move: destination cannot be the source cell (no-op) — still show green there.
+	place_preview.visible = true
+	place_preview.global_position = Vector3(place_pos) + Vector3(0.5, 0.5, 0.5)
+	place_preview.material_override = _place_mat_ok if can else _place_mat_bad
 
 
 func _tint_highlight_for_mining() -> void:
@@ -457,10 +500,13 @@ func _update_mining(delta: float) -> void:
 
 func _finish_survival_break(t: Vector3i) -> void:
 	var held := inventory.selected_item()
+	var bid := world.get_block(t.x, t.y, t.z)
 	var drop := world.break_block_survival(t.x, t.y, t.z, held)
 	if drop != "":
 		var at := Vector3(t) + Vector3(0.5, 0.5, 0.5)
 		world.spawn_drop(drop, 1, at)
+		if not _ignore_history:
+			build_history.push(BuildHistory.block_remove(t, BlockDB.get_block_name(bid), bid, drop))
 		GameState.toast("Got " + BlockDB.display_name(drop))
 	else:
 		GameState.toast("Need the right tool")
@@ -485,16 +531,103 @@ func try_break() -> void:
 	var t := get_target_block()
 	if t.x == -9999:
 		return
+	var bid := world.get_block(t.x, t.y, t.z)
 	var drop := world.break_block(t.x, t.y, t.z)
 	if drop != "":
 		inventory.add_item(drop, 1)
+		if not _ignore_history:
+			build_history.push(BuildHistory.block_remove(t, BlockDB.get_block_name(bid), bid, drop))
 		GameState.toast("Got " + BlockDB.display_name(drop))
 		_play_sfx("res://assets/audio/rpg/chop.ogg")
 
 
+func _active_place_item() -> String:
+	if _catalog_place_item != "" and BlockDB.is_placeable(_catalog_place_item):
+		return _catalog_place_item
+	if build_session.is_busy() and build_session.selected_kind() == "block":
+		return build_session.selected_id()
+	if inventory:
+		return inventory.selected_item()
+	return ""
+
+
+func select_build_item(item_id: String) -> void:
+	## Catalog selection: arm place preview without mutating the world.
+	if item_id == "" or not BlockDB.is_placeable(item_id):
+		return
+	_catalog_place_item = item_id
+	build_session.select_catalog_item(BuildCatalog.block_entry(item_id), "catalog")
+	# Prefer an existing hotbar stack; Creative can seed the selected slot.
+	if inventory:
+		for i in Inventory.HOTBAR_SIZE:
+			if str(inventory.hotbar[i].get("item", "")) == item_id:
+				inventory.select(i)
+				GameState.toast("Tap a spot to place " + BlockDB.display_name(item_id))
+				return
+		if GameState.is_creative():
+			inventory.hotbar[inventory.selected] = {"item": item_id, "count": 64}
+			inventory.changed.emit()
+			GameState.notify_inventory()
+		elif inventory.count_of(item_id) <= 0:
+			GameState.toast("Need " + BlockDB.display_name(item_id))
+			return
+		# Survival with items only in bag: ensure_selected later at place time.
+		GameState.toast("Tap a spot to place " + BlockDB.display_name(item_id))
+
+
+func clear_build_selection() -> void:
+	_catalog_place_item = ""
+	_move_from_block = Vector3i(-9999, 0, 0)
+	_move_block_id = 0
+	build_session.clear()
+
+
+func begin_move_targeted_block() -> void:
+	var t := get_target_block()
+	if t.x == -9999:
+		GameState.toast("Look at a block to move")
+		return
+	var bid := world.get_block(t.x, t.y, t.z)
+	if bid == 0:
+		return
+	var item := BlockDB.get_block_name(bid)
+	if item == "" or not BlockDB.is_placeable(item):
+		GameState.toast("Can't move that")
+		return
+	_move_from_block = t
+	_move_block_id = bid
+	_catalog_place_item = item
+	build_session.begin_move_block(t, BuildCatalog.block_entry(item))
+	GameState.toast("Move — tap a new spot")
+
+
+func begin_copy_targeted_block() -> void:
+	var t := get_target_block()
+	if t.x == -9999:
+		GameState.toast("Look at a block to copy")
+		return
+	var bid := world.get_block(t.x, t.y, t.z)
+	var item := BlockDB.get_block_name(bid)
+	if item == "" or not BlockDB.is_placeable(item):
+		GameState.toast("Can't copy that")
+		return
+	_catalog_place_item = item
+	build_session.begin_copy_block(t, BuildCatalog.block_entry(item))
+	if GameState.is_creative() and inventory:
+		inventory.hotbar[inventory.selected] = {"item": item, "count": 64}
+		inventory.changed.emit()
+		GameState.notify_inventory()
+	GameState.toast("Copy — tap a spot to place")
+
+
 func try_place() -> void:
 	cancel_mining()
-	var item := inventory.selected_item()
+	if build_session.suppress_world_place:
+		return
+	if build_session.mode == BuildSession.Mode.MOVE and _move_block_id != 0:
+		_try_move_block()
+		return
+	var item := _active_place_item()
 	if item == "" or not BlockDB.is_placeable(item):
 		return
 	var p := get_place_pos()
@@ -502,10 +635,73 @@ func try_place() -> void:
 		return
 	if not world.can_place_at(p.x, p.y, p.z, player_aabb()):
 		return
+	# Survival: ensure the item is selected for consume_selected rules.
+	if inventory and inventory.selected_item() != item:
+		if not _ensure_selected_item(item):
+			GameState.toast("Need " + BlockDB.display_name(item))
+			return
 	if not inventory.consume_selected(1):
 		return
-	world.set_block(p.x, p.y, p.z, BlockDB.place_block_id(item), true)
+	var prev := world.get_block(p.x, p.y, p.z)
+	var bid := BlockDB.place_block_id(item)
+	world.set_block(p.x, p.y, p.z, bid, true)
+	if not _ignore_history:
+		if build_session.mode == BuildSession.Mode.COPY:
+			build_history.push(BuildHistory.block_copy(p, item, bid, prev))
+		else:
+			build_history.push(BuildHistory.block_place(p, item, bid, prev))
 	_play_sfx("res://assets/audio/impact/impactGeneric_light_000.ogg")
+
+
+func _ensure_selected_item(item: String) -> bool:
+	if inventory == null:
+		return false
+	if inventory.selected_item() == item and (GameState.is_creative() or inventory.selected_count() > 0):
+		return true
+	for i in Inventory.HOTBAR_SIZE:
+		if str(inventory.hotbar[i].get("item", "")) == item and int(inventory.hotbar[i].get("count", 0)) > 0:
+			inventory.select(i)
+			return true
+	if GameState.is_creative():
+		inventory.hotbar[inventory.selected] = {"item": item, "count": 64}
+		inventory.changed.emit()
+		GameState.notify_inventory()
+		return true
+	# Pull from bag into selected slot.
+	if inventory.count_of(item) <= 0:
+		return false
+	inventory.remove_item(item, 1)
+	inventory.hotbar[inventory.selected] = {"item": item, "count": 1}
+	inventory.changed.emit()
+	GameState.notify_inventory()
+	return true
+
+
+func _try_move_block() -> void:
+	var from := _move_from_block
+	var bid := _move_block_id
+	if from.x == -9999 or bid == 0:
+		return
+	var p := get_place_pos()
+	if p.x == -9999:
+		return
+	if p == from:
+		return
+	if not world.can_place_at(p.x, p.y, p.z, player_aabb()):
+		GameState.toast("Can't move there")
+		return
+	if world.get_block(from.x, from.y, from.z) != bid:
+		GameState.toast("That block changed")
+		clear_build_selection()
+		return
+	var dest_prev := world.get_block(p.x, p.y, p.z)
+	var item := BlockDB.get_block_name(bid)
+	world.set_block(from.x, from.y, from.z, 0, true)
+	world.set_block(p.x, p.y, p.z, bid, true)
+	build_history.push(BuildHistory.block_move(from, p, item, bid, dest_prev))
+	clear_build_selection()
+	_play_sfx("res://assets/audio/impact/impactGeneric_light_000.ogg")
+	GameState.toast("Moved!")
 
 
 func near_crafting_table() -> bool:
@@ -530,6 +726,8 @@ func prepare_for_mode(mode: int) -> void:
 	## Called after New World selection.
 	GameState.set_game_mode(mode)
 	cancel_mining()
+	clear_build_selection()
+	build_history.clear()
 	if mode == GameState.Mode.SURVIVAL:
 		inventory.clear()
 		GameState.set_flying(false)
@@ -550,6 +748,111 @@ func prepare_for_mode(mode: int) -> void:
 			parent.add_child(spawner)
 			spawner.spawn_default()
 		reset_to_spawn()
+
+
+func undo_build() -> void:
+	if not build_history.can_undo():
+		GameState.toast("Nothing to undo")
+		return
+	var e := build_history.pop_undo()
+	_ignore_history = true
+	var ok := _apply_block_history(e, true)
+	_ignore_history = false
+	if not ok:
+		build_history.restore_failed_undo(e)
+	else:
+		GameState.toast("Undo")
+
+
+func redo_build() -> void:
+	if not build_history.can_redo():
+		GameState.toast("Nothing to redo")
+		return
+	var e := build_history.pop_redo()
+	_ignore_history = true
+	var ok := _apply_block_history(e, false)
+	_ignore_history = false
+	if not ok:
+		build_history.restore_failed_redo(e)
+	else:
+		GameState.toast("Redo")
+
+
+func _apply_block_history(e: Dictionary, undoing: bool) -> bool:
+	if e.is_empty() or world == null:
+		return false
+	var op := int(e.get("op", -1))
+	match op:
+		BuildHistory.Op.PLACE_BLOCK, BuildHistory.Op.COPY_BLOCK:
+			var pos := BuildHistory.vec3i_of(e, "pos")
+			if undoing:
+				# Remove placed block and refund in Survival.
+				if world.get_block(pos.x, pos.y, pos.z) != int(e.get("block_id", 0)):
+					GameState.toast("That block changed")
+					return false
+				world.set_block(pos.x, pos.y, pos.z, int(e.get("prev_id", 0)), true)
+				if GameState.is_survival():
+					inventory.add_item(str(e.get("item_id", "")), 1)
+				return true
+			# Redo place: consume then set.
+			var item := str(e.get("item_id", ""))
+			if GameState.is_survival():
+				if not _ensure_selected_item(item) or not inventory.consume_selected(1):
+					GameState.toast("Need " + BlockDB.display_name(item))
+					return false
+			if not world.can_place_at(pos.x, pos.y, pos.z, player_aabb()) and world.get_block(pos.x, pos.y, pos.z) != 0:
+				GameState.toast("Can't place there")
+				return false
+			world.set_block(pos.x, pos.y, pos.z, int(e.get("block_id", 0)), true)
+			return true
+		BuildHistory.Op.REMOVE_BLOCK:
+			var rpos := BuildHistory.vec3i_of(e, "pos")
+			var drop_item := str(e.get("drop_item", e.get("item_id", "")))
+			if undoing:
+				# Restore block; take the drop back so undo can't duplicate resources.
+				if world.get_block(rpos.x, rpos.y, rpos.z) != 0:
+					GameState.toast("Spot filled — can't undo")
+					return false
+				if GameState.is_survival() and drop_item != "":
+					if inventory.count_of(drop_item) < 1:
+						GameState.toast("Need the dropped item to undo")
+						return false
+					inventory.remove_item(drop_item, 1)
+				world.set_block(rpos.x, rpos.y, rpos.z, int(e.get("block_id", 0)), true)
+				return true
+			# Redo remove
+			if world.get_block(rpos.x, rpos.y, rpos.z) != int(e.get("block_id", 0)):
+				GameState.toast("That block changed")
+				return false
+			world.set_block(rpos.x, rpos.y, rpos.z, 0, true)
+			if drop_item != "":
+				inventory.add_item(drop_item, 1)
+			return true
+		BuildHistory.Op.MOVE_BLOCK:
+			var from := BuildHistory.vec3i_of(e, "from")
+			var to := BuildHistory.vec3i_of(e, "to")
+			var bid := int(e.get("block_id", 0))
+			if undoing:
+				if world.get_block(to.x, to.y, to.z) != bid:
+					GameState.toast("That block changed")
+					return false
+				if world.get_block(from.x, from.y, from.z) != 0:
+					GameState.toast("Can't undo move")
+					return false
+				world.set_block(to.x, to.y, to.z, int(e.get("dest_prev", 0)), true)
+				world.set_block(from.x, from.y, from.z, bid, true)
+				return true
+			if world.get_block(from.x, from.y, from.z) != bid:
+				GameState.toast("That block changed")
+				return false
+			if not world.can_place_at(to.x, to.y, to.z, player_aabb()) and world.get_block(to.x, to.y, to.z) != 0:
+				GameState.toast("Can't redo move")
+				return false
+			world.set_block(from.x, from.y, from.z, 0, true)
+			world.set_block(to.x, to.y, to.z, bid, true)
+			return true
+		_:
+			return false
 
 
 func _play_sfx(path: String) -> void:
