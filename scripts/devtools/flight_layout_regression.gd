@@ -56,6 +56,15 @@ func _run() -> void:
 		if ui.touch_controls and ui.touch_controls.has_method("_on_viewport_resized"):
 			ui.touch_controls._on_viewport_resized()
 		ui._layout_hotbar()
+		# Capture joystick before flight toggles — must stay put.
+		GameState.set_flying(false)
+		ui._layout_fly_controls()
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var joy0: Control = ui.touch_controls.joystick
+		var rect0 := joy0.get_global_rect()
+		var anchors0 := [joy0.anchor_left, joy0.anchor_top, joy0.anchor_right, joy0.anchor_bottom]
+		var offsets0 := [joy0.offset_left, joy0.offset_top, joy0.offset_right, joy0.offset_bottom]
 		# Off + on for each size
 		for flying in [false, true]:
 			GameState.set_flying(flying)
@@ -64,6 +73,18 @@ func _run() -> void:
 			await get_tree().process_frame
 			var label := "%s flying=%s" % [spec["name"], flying]
 			_assert_layout(ui, label)
+			var joy1: Control = ui.touch_controls.joystick
+			var rect1 := joy1.get_global_rect()
+			_assert(rect0.position.is_equal_approx(rect1.position), "%s joystick pos stable" % label)
+			_assert(rect0.size.is_equal_approx(rect1.size), "%s joystick size stable" % label)
+			_assert(
+				anchors0 == [joy1.anchor_left, joy1.anchor_top, joy1.anchor_right, joy1.anchor_bottom],
+				"%s joystick anchors stable" % label
+			)
+			_assert(
+				offsets0 == [joy1.offset_left, joy1.offset_top, joy1.offset_right, joy1.offset_bottom],
+				"%s joystick offsets stable" % label
+			)
 
 
 func _assert_layout(ui: GameUi, label: String) -> void:

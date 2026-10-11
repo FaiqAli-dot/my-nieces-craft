@@ -10,7 +10,8 @@ func _ready() -> void:
 	_setup_environment()
 	var dresser := MeadowDresser.new()
 	dresser.dress(self)
-	if OS.get_environment("COZY_FORCE_TOUCH") == "1" or OS.get_environment("COZY_SCREENSHOTS") == "1" or OS.get_environment("COZY_MOBILE_HUD_SHOTS") == "1" or OS.get_environment("COZY_TOUCH_TEST") == "1":
+	_spawn_meadow_monsters()
+	if OS.get_environment("COZY_FORCE_TOUCH") == "1" or OS.get_environment("COZY_SCREENSHOTS") == "1" or OS.get_environment("COZY_MOBILE_HUD_SHOTS") == "1" or OS.get_environment("COZY_TOUCH_TEST") == "1" or OS.get_environment("COZY_P1_DIAG") == "1" or OS.get_environment("COZY_P1_TEST") == "1" or OS.get_environment("COZY_P1_SHOTS") == "1" or OS.get_environment("COZY_P1_DEMO") == "1":
 		GameState.touch_controls_forced = true
 		ui._detect_touch()
 	if OS.get_environment("COZY_SCREENSHOTS") == "1":
@@ -45,6 +46,18 @@ func _ready() -> void:
 		var flight_layout := Node.new()
 		flight_layout.set_script(load("res://scripts/devtools/flight_layout_regression.gd"))
 		add_child(flight_layout)
+	if OS.get_environment("COZY_P1_DIAG") == "1":
+		var p1diag := Node.new()
+		p1diag.set_script(load("res://scripts/devtools/phase1_diagnostics.gd"))
+		add_child(p1diag)
+	if OS.get_environment("COZY_P1_SHOTS") == "1":
+		var p1shots := Node.new()
+		p1shots.set_script(load("res://scripts/devtools/phase1_shots.gd"))
+		add_child(p1shots)
+	if OS.get_environment("COZY_P1_DEMO") == "1":
+		var p1demo := Node.new()
+		p1demo.set_script(load("res://scripts/devtools/phase1_demo_driver.gd"))
+		add_child(p1demo)
 	if OS.get_environment("COZY_S2_SHOTS") == "1":
 		var s2shots := Node.new()
 		s2shots.set_script(load("res://scripts/devtools/s2_shots.gd"))
@@ -63,6 +76,10 @@ func _ready() -> void:
 		or OS.get_environment("COZY_MP_TEST") == "1"
 		or OS.get_environment("COZY_S2_SHOTS") == "1"
 		or OS.get_environment("COZY_S2_DEMO") == "1"
+		or OS.get_environment("COZY_P1_DIAG") == "1"
+		or OS.get_environment("COZY_P1_TEST") == "1"
+		or OS.get_environment("COZY_P1_SHOTS") == "1"
+		or OS.get_environment("COZY_P1_DEMO") == "1"
 		or OS.get_environment("COZY_SKIP_MODE_SELECT") == "1"
 	)
 	if not skip_mode_ui and not SaveGame.save_exists():
@@ -75,6 +92,14 @@ func _ready() -> void:
 func _offer_new_world() -> void:
 	if ui and ui.has_method("show_mode_select"):
 		ui.show_mode_select()
+
+
+func _spawn_meadow_monsters() -> void:
+	## Minimal combat path for Phase 1 — three gloomlets near spawn.
+	var spawner := MonsterSpawner.new()
+	spawner.name = "MonsterSpawner"
+	add_child(spawner)
+	spawner.spawn_default()
 
 
 func _setup_environment() -> void:

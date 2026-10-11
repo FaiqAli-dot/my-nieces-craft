@@ -217,6 +217,7 @@ func bind_player_api(player: PlayerController, craft_cb: Callable) -> void:
 	jump_pressed.connect(func(): if player: player.touch_jump())
 	break_pressed.connect(func(): if player: player.touch_break())
 	break_hold_tick.connect(func(): if player: player.touch_break())
+	break_released.connect(func(): if player: player.touch_break_released())
 	place_pressed.connect(func(): if player: player.touch_place())
 	if craft_cb.is_valid():
 		craft_pressed.connect(craft_cb)

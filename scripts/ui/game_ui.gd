@@ -720,9 +720,9 @@ func _layout_fly_controls() -> void:
 		if actions and actions.has_method("set_flight_column_inset"):
 			actions.set_flight_column_inset(0.0)
 		return
-	# Refresh touch layout first so Jump/joystick rects are current.
-	if touch_controls and touch_controls.has_method("_on_viewport_resized"):
-		touch_controls._on_viewport_resized()
+	# Do NOT call touch_controls._on_viewport_resized() here — that reflows the
+	# movement joystick on every Fly/Land toggle. Only the right action cluster
+	# and flight buttons may change.
 	actions = touch_controls.actions if touch_controls else null
 	if actions == null or actions.jump_btn == null:
 		return

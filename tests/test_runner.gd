@@ -42,6 +42,12 @@ func _ready() -> void:
 	await _test_survival_progression_and_save()
 	_test_legacy_save_defaults_creative()
 	await _test_mode_select_ui()
+	# Phase 1: core controls & reliability
+	await _test_survival_mining_requires_explicit_hold()
+	await _test_touch_hud_ignores_mouse_break()
+	await _test_mining_cancel_on_release()
+	await _test_monster_combat_pipeline()
+	await _test_flight_toggle_keeps_joystick_stable()
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
 	get_tree().quit(1 if failed > 0 else 0)
 
@@ -974,3 +980,260 @@ func _test_chunk_mesh_update() -> void:
 		faces = (chunk._collision.shape as ConcavePolygonShape3D).get_faces().size()
 	_assert(faces > 0, "collision faces present")
 	world.queue_free()
+
+
+func _make_player_rig() -> Dictionary:
+	## Minimal PlayerController + VoxelWorld + GameUi for mining/combat unit tests.
+	var world := _make_world()
+	var ui := GameUi.new()
+	add_child(ui)
+	var player := PlayerController.new()
+	player.inventory = Inventory.new(false)
+	player.crafting = CraftingSystem.new()
+	var col := CollisionShape3D.new()
+	col.name = "CollisionShape3D"
+	col.shape = CapsuleShape3D.new()
+	player.add_child(col)
+	var head := Node3D.new()
+	head.name = "Head"
+	player.add_child(head)
+	var cam := Camera3D.new()
+	cam.name = "Camera3D"
+	head.add_child(cam)
+	var ray := RayCast3D.new()
+	ray.name = "RayCast3D"
+	ray.enabled = true
+	ray.target_position = Vector3(0, 0, -PlayerController.REACH)
+	ray.collision_mask = PlayerController.RAY_MASK_WORLD | PlayerController.RAY_MASK_MOBS
+	cam.add_child(ray)
+	var hi := MeshInstance3D.new()
+	hi.name = "BlockHighlight"
+	player.add_child(hi)
+	var pp := MeshInstance3D.new()
+	pp.name = "PlacePreview"
+	player.add_child(pp)
+	player.world_path = world.get_path()
+	player.ui_path = ui.get_path()
+	add_child(player)
+	return {"world": world, "ui": ui, "player": player}
+
+
+func _aim_player_at_block(player: PlayerController, tx: int, ty: int, tz: int) -> void:
+	## Stand south of the block (+Z) and look toward -Z with eyes at block center.
+	player.global_position = Vector3(
+		float(tx) + 0.5,
+		float(ty) + 0.5 - PlayerController.EYE_HEIGHT,
+		float(tz) + 2.5
+	)
+	player.look_yaw = 0.0
+	player.look_pitch = 0.0
+	player.head.rotation.y = 0.0
+	player.camera.rotation.x = 0.0
+	player.velocity = Vector3.ZERO
+	player.ray.force_raycast_update()
+
+
+func _test_survival_mining_requires_explicit_hold() -> void:
+	var rig := _make_player_rig()
+	var world: VoxelWorld = rig["world"]
+	var player: PlayerController = rig["player"]
+	await get_tree().process_frame
+	await get_tree().physics_frame
+	GameState.set_game_mode(GameState.Mode.SURVIVAL)
+	player.cancel_mining()
+	var tx := 8
+	var ty := VoxelWorld.GROUND_Y + 1
+	var tz := 8
+	world.set_block(tx, ty, tz, BlockDB.get_id("leaves"), true)
+	await get_tree().physics_frame
+	_aim_player_at_block(player, tx, ty, tz)
+	await get_tree().physics_frame
+	player.ray.force_raycast_update()
+	# Aim-only: no hold flags → mining must not advance.
+	player._break_held = false
+	player._touch_mining = false
+	player._mine_progress = 0.0
+	player._update_mining(0.5)
+	_assert(is_equal_approx(player._mine_progress, 0.0), "aim without break leaves progress 0")
+	_assert(world.get_block(tx, ty, tz) == BlockDB.get_id("leaves"), "aim without break keeps block")
+	# Explicit hold advances and can finish.
+	player._touch_mining = true
+	player._update_mining(0.05)
+	_assert(player._mine_progress > 0.0, "explicit hold starts mining")
+	var needed := player._mine_needed
+	player._update_mining(needed + 0.05)
+	_assert(world.get_block(tx, ty, tz) == 0, "explicit hold can finish break")
+	GameState.set_creative(true)
+	rig["ui"].queue_free()
+	player.queue_free()
+	world.queue_free()
+	await get_tree().process_frame
+
+
+func _test_touch_hud_ignores_mouse_break() -> void:
+	var rig := _make_player_rig()
+	var ui: GameUi = rig["ui"]
+	var player: PlayerController = rig["player"]
+	var world: VoxelWorld = rig["world"]
+	GameState.touch_controls_forced = true
+	ui._detect_touch()
+	await get_tree().process_frame
+	_assert(ui.touch_controls != null and ui.touch_controls.visible, "touch HUD visible for mouse-break gate")
+	_assert(player._touch_hud_active(), "player sees touch HUD active")
+	GameState.set_game_mode(GameState.Mode.SURVIVAL)
+	player.cancel_mining()
+	var tx := 9
+	var ty := VoxelWorld.GROUND_Y + 1
+	var tz := 9
+	world.set_block(tx, ty, tz, BlockDB.get_id("leaves"), true)
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	# Captured LMB must not arm mining while touch HUD owns break.
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	player._input(press)
+	_assert(not player._break_held, "touch HUD blocks mouse break_held")
+	player._update_mining(0.4)
+	_assert(world.get_block(tx, ty, tz) == BlockDB.get_id("leaves"), "emulated LMB does not mine")
+	# LookArea drag must not arm mining either.
+	var look: LookArea = ui.touch_controls.look_area
+	look.simulate_touch(3, look.size * 0.5, true)
+	look.simulate_drag(3, Vector2(40, -10))
+	player._update_mining(0.4)
+	_assert(world.get_block(tx, ty, tz) == BlockDB.get_id("leaves"), "look drag does not mine")
+	_assert(player.mining_fraction() <= 0.0, "look drag mining fraction idle")
+	look.simulate_touch(3, look.size * 0.5, false)
+	# Explicit Break button still works.
+	player.touch_break()
+	_assert(player._touch_mining, "Break button arms touch mining")
+	player.touch_break_released()
+	_assert(not player._touch_mining, "Break release cancels mining")
+	GameState.touch_controls_forced = false
+	GameState.set_creative(true)
+	ui.queue_free()
+	player.queue_free()
+	world.queue_free()
+	await get_tree().process_frame
+
+
+func _test_mining_cancel_on_release() -> void:
+	var rig := _make_player_rig()
+	var world: VoxelWorld = rig["world"]
+	var player: PlayerController = rig["player"]
+	await get_tree().process_frame
+	GameState.set_game_mode(GameState.Mode.SURVIVAL)
+	var tx := 11
+	var ty := VoxelWorld.GROUND_Y + 1
+	var tz := 11
+	world.set_block(tx, ty, tz, BlockDB.get_id("wood"), true)
+	player._touch_mining = true
+	player._mine_target = Vector3i(tx, ty, tz)
+	player._mine_needed = MiningRules.break_seconds(BlockDB.get_id("wood"), "")
+	player._mine_progress = player._mine_needed * 0.6
+	player.touch_break_released()
+	_assert(is_equal_approx(player._mine_progress, 0.0), "release clears mining progress")
+	_assert(world.get_block(tx, ty, tz) == BlockDB.get_id("wood"), "cancelled mine keeps block")
+	GameState.set_creative(true)
+	rig["ui"].queue_free()
+	player.queue_free()
+	world.queue_free()
+	await get_tree().process_frame
+
+
+func _test_monster_combat_pipeline() -> void:
+	var mob := CozyMonster.new()
+	add_child(mob)
+	await get_tree().process_frame
+	_assert(mob.is_alive(), "monster spawns alive")
+	_assert(mob.health == CozyMonster.MAX_HEALTH, "monster full health")
+	var ok := mob.take_damage(PlayerController.ATTACK_DAMAGE)
+	_assert(ok, "valid attack applies damage")
+	_assert(mob.health == CozyMonster.MAX_HEALTH - PlayerController.ATTACK_DAMAGE, "health decreased")
+	# I-frames / duplicate processing of one attack window.
+	_assert(not mob.take_damage(PlayerController.ATTACK_DAMAGE), "iframe blocks duplicate hit")
+	mob._iframe = 0.0
+	# Out-of-range is enforced by PlayerController; monster itself still accepts damage.
+	# Defeat path:
+	mob._iframe = 0.0
+	mob.health = PlayerController.ATTACK_DAMAGE
+	_assert(mob.take_damage(PlayerController.ATTACK_DAMAGE), "finishing blow lands")
+	_assert(not mob.is_alive(), "zero health defeats monster")
+	_assert(not mob.take_damage(1), "defeated monster ignores further damage")
+
+	var rig := _make_player_rig()
+	var player: PlayerController = rig["player"]
+	var world: VoxelWorld = rig["world"]
+	await get_tree().process_frame
+	var far := CozyMonster.new()
+	far.position = Vector3(80, float(VoxelWorld.GROUND_Y + 1), 80)
+	add_child(far)
+	await get_tree().process_frame
+	# Force ray to miss / out of range: get_target_monster null → no attack.
+	player.ray.enabled = true
+	_assert(player.get_target_monster() == null, "no in-range monster targeted")
+	_assert(not player._try_attack(), "out-of-range attack deals no damage")
+	_assert(far.health == CozyMonster.MAX_HEALTH, "far monster undamaged")
+	# Looking alone must not attack — no automatic damage without _try_attack.
+	var near := CozyMonster.new()
+	near.position = player.global_position + Vector3(0, 0, -1.5)
+	add_child(near)
+	await get_tree().process_frame
+	var hp0 := near.health
+	for i in 4:
+		await get_tree().physics_frame
+	_assert(near.health == hp0, "looking at monster does not auto-attack")
+	GameState.set_creative(true)
+	far.queue_free()
+	near.queue_free()
+	mob.queue_free()
+	rig["ui"].queue_free()
+	player.queue_free()
+	world.queue_free()
+	await get_tree().process_frame
+
+
+func _test_flight_toggle_keeps_joystick_stable() -> void:
+	var ui := GameUi.new()
+	add_child(ui)
+	GameState.touch_controls_forced = true
+	GameState.set_creative(true)
+	GameState.set_flying(false)
+	ui._detect_touch()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_assert(ui.touch_controls != null and ui.touch_controls.joystick != null, "joystick exists")
+	var joy: TouchJoystick = ui.touch_controls.joystick
+	ui._layout_fly_controls()
+	await get_tree().process_frame
+	var rect0 := joy.get_global_rect()
+	var anchors0 := [joy.anchor_left, joy.anchor_top, joy.anchor_right, joy.anchor_bottom]
+	var offsets0 := [joy.offset_left, joy.offset_top, joy.offset_right, joy.offset_bottom]
+	var rest0 := joy.rest_center()
+	var fly_parent_count := ui._fly_cluster.get_child_count() if ui._fly_cluster else -1
+	for i in 4:
+		GameState.set_flying(true)
+		ui._layout_fly_controls()
+		await get_tree().process_frame
+		GameState.set_flying(false)
+		ui._layout_fly_controls()
+		await get_tree().process_frame
+	var rect1 := joy.get_global_rect()
+	var anchors1 := [joy.anchor_left, joy.anchor_top, joy.anchor_right, joy.anchor_bottom]
+	var offsets1 := [joy.offset_left, joy.offset_top, joy.offset_right, joy.offset_bottom]
+	_assert(rect0.position.is_equal_approx(rect1.position), "joystick position stable across flight toggles")
+	_assert(rect0.size.is_equal_approx(rect1.size), "joystick size stable across flight toggles")
+	_assert(anchors0 == anchors1, "joystick anchors unchanged by flight toggle")
+	_assert(offsets0 == offsets1, "joystick offsets unchanged by flight toggle")
+	_assert(rest0.is_equal_approx(joy.rest_center()), "joystick rest center unchanged")
+	_assert(ui._fly_cluster.get_child_count() == fly_parent_count, "flight toggles do not duplicate controls")
+	# Survival cannot show flight / cannot fly.
+	GameState.set_game_mode(GameState.Mode.SURVIVAL)
+	GameState.set_flying(true)
+	_assert(not GameState.flying, "survival cannot enable flight")
+	ui._layout_fly_controls()
+	await get_tree().process_frame
+	_assert(ui._fly_cluster == null or not ui._fly_cluster.visible, "survival hides flight cluster")
+	GameState.set_creative(true)
+	GameState.touch_controls_forced = false
+	ui.queue_free()
+	await get_tree().process_frame
