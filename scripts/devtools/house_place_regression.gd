@@ -239,6 +239,8 @@ func _run_online() -> void:
 
 func _place_online_via_ui(def_id: String, cell: Vector2i, label: String) -> void:
 	var ui: HouseUi = _world.ui
+	# Stay under the server's OP_RATE_PER_SEC anti-spam limit (8 edits/s).
+	await get_tree().create_timer(0.15).timeout
 	var before_rev: int = NetClient.revision
 	var before_count: int = _world._furniture.size()
 	await _pick_catalog(def_id)

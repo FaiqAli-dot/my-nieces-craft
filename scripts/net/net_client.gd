@@ -1,8 +1,18 @@
 extends Node
 ## Client WebSocket connection to the house server (autoload).
+##
+## Lifecycle: connect_to_server() is idempotent while connecting/connected.
+## A failed attempt (socket never opened) emits connection_failed and retries
+## with exponential backoff until max_failed_attempts, then emits gave_up and
+## stops. Losing an open connection emits disconnected and retries (streak reset).
 
 signal connected
+## Emitted when an open connection is lost or torn down intentionally.
 signal disconnected
+## An attempt failed before the socket opened. next_retry_sec < 0 → no retry.
+signal connection_failed(attempt: int, next_retry_sec: float)
+## Retries exhausted; nothing further happens until retry_now()/connect_to_server().
+signal gave_up
 signal welcomed(info: Dictionary)
 signal house_state(state: Dictionary)
 signal player_joined(info: Dictionary)
@@ -26,6 +36,20 @@ var current_house: Dictionary = {}
 var current_role: String = ""
 var revision: int = 0
 
+const IDENTITY_PATH := "user://cozy_identity.cfg"
+
+## Backoff tuning (tests shrink these).
+var retry_base_ms: float = 1500.0
+var retry_max_ms: float = 20000.0
+var max_failed_attempts: int = 4
+var identity_path: String = IDENTITY_PATH
+
+## Diagnostics: total socket attempts since launch and the current failure streak.
+var connect_attempts: int = 0
+var failed_streak: int = 0
+## What the client wants to be in after (re)connecting: {} | {"kind":"own"} | {"kind":"invite","code":..}
+var desired_target: Dictionary = {}
+
 var _ws: WebSocketPeer
 var _wanted := false
 var _hello_sent := false
@@ -48,24 +72,74 @@ func _ready() -> void:
 		display_name = dev_identity if dev_identity != "" else "Player"
 
 
+## Stable per-install identity so reconnects keep the same private house.
+func resolved_identity() -> String:
+	if dev_identity != "":
+		return dev_identity
+	var cfg := ConfigFile.new()
+	if cfg.load(identity_path) == OK:
+		var saved := str(cfg.get_value("net", "identity", ""))
+		if saved != "":
+			return saved
+	var fresh := "guest_%s" % _random_hex(12)
+	cfg.set_value("net", "identity", fresh)
+	var err := cfg.save(identity_path)
+	if err != OK:
+		push_warning("[NET] could not persist identity (%d); house may not persist" % err)
+	return fresh
+
+
 func connect_to_server() -> void:
+	if _ws != null and _status in ["connecting", "connected"]:
+		return
 	_wanted = true
+	failed_streak = 0
+	_open_socket()
+
+
+## User-initiated retry after gave_up (e.g. a "Try again" button).
+func retry_now() -> void:
+	if _ws != null and _status in ["connecting", "connected"]:
+		return
+	_wanted = true
+	failed_streak = 0
+	_open_socket()
+
+
+func _open_socket() -> void:
 	_closing = false
 	_hello_sent = false
+	_reconnect_at = 0.0
 	_status = "connecting"
 	if _ws != null:
 		_ws.close()
 		_ws = null
+	connect_attempts += 1
 	_ws = WebSocketPeer.new()
 	var url := "ws://%s:%d" % [host, port]
 	var err := _ws.connect_to_url(url)
 	if err != OK:
-		GameState.toast("Can't reach house server")
 		_ws = null
-		_status = "offline"
-		_reconnect_at = Time.get_ticks_msec() + 2000.0
+		_on_attempt_failed("connect_to_url error %d" % err)
 		return
-	print("[NET] connecting ", url)
+	print("[NET] connecting %s (attempt %d)" % [url, failed_streak + 1])
+
+
+func _on_attempt_failed(why: String) -> void:
+	failed_streak += 1
+	if failed_streak >= max_failed_attempts:
+		_wanted = false
+		_reconnect_at = 0.0
+		_status = "offline"
+		print("[NET] server unreachable after %d attempts (%s) — staying offline" % [failed_streak, why])
+		connection_failed.emit(failed_streak, -1.0)
+		gave_up.emit()
+		return
+	var delay := minf(retry_base_ms * pow(2.0, failed_streak - 1), retry_max_ms)
+	_reconnect_at = Time.get_ticks_msec() + delay
+	_status = "offline"
+	print("[NET] attempt %d failed (%s) — retry in %.1fs" % [failed_streak, why, delay / 1000.0])
+	connection_failed.emit(failed_streak, delay / 1000.0)
 
 
 func disconnect_from_server() -> void:
@@ -75,6 +149,8 @@ func disconnect_from_server() -> void:
 	_status = "closing"
 	_hello_sent = false
 	_reconnect_at = 0.0
+	failed_streak = 0
+	desired_target = {}
 	if _ws:
 		_ws.close()
 	_ws = null
@@ -98,33 +174,43 @@ func connection_status() -> String:
 
 func _process(_delta: float) -> void:
 	if _ws == null:
-		if _wanted and not _closing and Time.get_ticks_msec() >= _reconnect_at and _reconnect_at > 0.0:
-			connect_to_server()
+		if _wanted and not _closing and _reconnect_at > 0.0 and Time.get_ticks_msec() >= _reconnect_at:
+			_open_socket()
 		return
 	_ws.poll()
 	var state := _ws.get_ready_state()
 	if state == WebSocketPeer.STATE_OPEN:
 		if not _hello_sent:
 			_hello_sent = true
+			failed_streak = 0
 			_status = "connected"
 			connected.emit()
 			send(NetProtocol.C_HELLO, {
-				"dev_identity": dev_identity if dev_identity != "" else ("guest_" + str(Time.get_ticks_msec())),
+				"dev_identity": resolved_identity(),
 				"display_name": display_name,
 			})
-		while _ws.get_available_packet_count() > 0:
+		while _ws != null and _ws.get_available_packet_count() > 0:
 			_handle(_ws.get_packet().get_string_from_utf8())
 	elif state == WebSocketPeer.STATE_CLOSED:
+		var was_open := _hello_sent
 		_ws = null
 		_hello_sent = false
 		if _closing or not _wanted:
 			_status = "idle"
 			return
+		if not was_open:
+			_on_attempt_failed("closed before open")
+			return
+		# Lost a live connection: reconnect once after the base delay.
+		print("[NET] connection lost — reconnecting")
+		player_id = ""
+		session = ""
+		current_house = {}
+		current_role = ""
 		_status = "offline"
+		_reconnect_at = Time.get_ticks_msec() + retry_base_ms
 		disconnected.emit()
-		if _wanted:
-			_reconnect_at = Time.get_ticks_msec() + 1500.0
-			GameState.toast("Reconnecting…")
+		GameState.toast("Connection lost — reconnecting…")
 
 
 func send(type: String, payload: Dictionary = {}, with_op: bool = false) -> String:
@@ -139,15 +225,35 @@ func send(type: String, payload: Dictionary = {}, with_op: bool = false) -> Stri
 
 
 func enter_own_house() -> void:
+	desired_target = {"kind": "own"}
 	send(NetProtocol.C_ENTER_OWN)
 
 
 func join_invite(code: String) -> void:
+	desired_target = {"kind": "invite", "code": code}
 	send(NetProtocol.C_JOIN_INVITE, {"code": code})
 
 
 func leave_house() -> void:
+	desired_target = {}
 	send(NetProtocol.C_LEAVE_HOUSE)
+
+
+## After a (re)welcome, return to whichever house we were in (default: own).
+func rejoin_desired_target() -> void:
+	if str(desired_target.get("kind", "")) == "invite":
+		join_invite(str(desired_target.get("code", "")))
+	else:
+		enter_own_house()
+
+
+func _random_hex(n: int) -> String:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var out := ""
+	for _i in n:
+		out += "0123456789abcdef"[rng.randi_range(0, 15)]
+	return out
 
 
 func send_move(pos: Vector3, yaw: float, moving: bool) -> void:

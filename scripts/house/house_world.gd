@@ -18,6 +18,12 @@ var _leaving := false
 var _offline_mode := false
 var _offline_store: HouseStore
 var _offline_layout: HouseLayout
+## House id the player was last spawned into; state refreshes for the same
+## house (reconnect, resize) must not teleport the player back to the door.
+var _spawned_house_id := ""
+## Diagnostics for regression tests.
+var offline_entries := 0
+var offline_probe_sec := 2.5
 
 
 func _ready() -> void:
@@ -54,12 +60,17 @@ func _ready() -> void:
 			or OS.get_environment("COZY_HOUSE_PLACE_SHOTS") == "1"
 		)
 		if not skip_probe:
-			# If the server is down, fall into offline decorate (same as AUTOSTART=0).
-			await get_tree().create_timer(2.5).timeout
-			if is_inside_tree() and NetClient.current_house.is_empty() and NetClient.connection_status() != "connected":
-				_enter_offline_mode("Offline demo")
+			# A slow/hanging connect (no refusal) still falls back to offline decorate.
+			# Child timer so it dies with the scene instead of resuming on a freed node.
+			var probe := Timer.new()
+			probe.name = "OfflineProbe"
+			probe.one_shot = true
+			probe.wait_time = offline_probe_sec
+			probe.timeout.connect(_on_offline_probe)
+			add_child(probe)
+			probe.start()
 	else:
-		_enter_offline_mode("Offline demo (server not started)")
+		_enter_offline_mode("Playing offline")
 	if OS.get_environment("COZY_E2E_ROLE") != "":
 		var e2e := Node.new()
 		e2e.set_script(load("res://scripts/devtools/e2e_client_driver.gd"))
@@ -99,6 +110,11 @@ func _exit_tree() -> void:
 	_disconnect_net_signals()
 
 
+func _on_offline_probe() -> void:
+	if not _leaving and NetClient.current_house.is_empty() and NetClient.connection_status() != "connected":
+		_enter_offline_mode("Playing offline")
+
+
 func _connect_net_signals() -> void:
 	_disconnect_net_signals()
 	NetClient.welcomed.connect(_on_welcomed)
@@ -114,6 +130,8 @@ func _connect_net_signals() -> void:
 	NetClient.server_error.connect(_on_err)
 	NetClient.connected.connect(_on_net_connected)
 	NetClient.disconnected.connect(_on_net_disconnected)
+	NetClient.connection_failed.connect(_on_net_connection_failed)
+	NetClient.gave_up.connect(_on_net_gave_up)
 
 
 func _disconnect_net_signals() -> void:
@@ -131,6 +149,8 @@ func _disconnect_net_signals() -> void:
 		[NetClient.server_error, _on_err],
 		[NetClient.connected, _on_net_connected],
 		[NetClient.disconnected, _on_net_disconnected],
+		[NetClient.connection_failed, _on_net_connection_failed],
+		[NetClient.gave_up, _on_net_gave_up],
 	]
 	for pair in pairs:
 		var sig: Signal = pair[0]
@@ -149,24 +169,41 @@ func _on_net_disconnected() -> void:
 	## Ignore teardown noise while returning to the meadow.
 	if _leaving or NetClient.is_transitioning() or not is_instance_valid(ui):
 		return
-	if NetClient.current_house.is_empty():
-		_enter_offline_mode("Offline demo")
-	else:
-		ui.set_status("Offline")
+	ui.set_status("Connection lost — reconnecting…")
+
+
+func _on_net_connection_failed(_attempt: int, next_retry_sec: float) -> void:
+	if _leaving or not is_instance_valid(ui):
+		return
+	if not _offline_mode and NetClient.current_house.is_empty():
+		_enter_offline_mode("Playing offline")
+	if next_retry_sec >= 0.0:
+		ui.set_status("Playing offline")
+
+
+func _on_net_gave_up() -> void:
+	if _leaving or not is_instance_valid(ui):
+		return
+	if not _offline_mode:
+		_enter_offline_mode("Playing offline")
+	ui.set_status("Playing offline")
 
 
 func _on_welcomed(_info: Dictionary) -> void:
 	ui.set_status("Hi %s" % NetClient.display_name)
 	var invite := OS.get_environment("COZY_JOIN_INVITE")
-	if invite != "":
+	if invite != "" and NetClient.desired_target.is_empty():
 		NetClient.join_invite(invite)
-	elif OS.get_environment("COZY_E2E_ROLE") != "bob":
-		NetClient.enter_own_house()
+	elif OS.get_environment("COZY_E2E_ROLE") == "bob" and NetClient.desired_target.is_empty():
+		pass
+	else:
+		NetClient.rejoin_desired_target()
 
 
 func _on_house_state(state: Dictionary) -> void:
 	_offline_mode = false
 	var house: Dictionary = state.get("house", {})
+	var house_id := str(house.get("house_id", ""))
 	ui.apply_house_state(state)
 	var layout := HouseLayout.from_dict(house)
 	placement.can_decorate = HousePermissions.can_decorate(layout, NetClient.player_id)
@@ -188,7 +225,7 @@ func _on_house_state(state: Dictionary) -> void:
 	var size_changed := bool(state.get("size_changed", false))
 	if not spawn.is_empty() and OS.get_environment("COZY_E2E_ROLE") == "":
 		var spawn_pos := Vector3(float(spawn.get("x", 6)), float(spawn.get("y", 0.1)), float(spawn.get("z", 6)))
-		if size_changed:
+		if size_changed or house_id == _spawned_house_id:
 			# Keep players inside the new footprint; pull back to spawn if outside.
 			var max_xz := space.room_size_meters() + 0.5
 			if player.global_position.x < -0.5 or player.global_position.x > max_xz \
@@ -196,9 +233,11 @@ func _on_house_state(state: Dictionary) -> void:
 				player.global_position = spawn_pos
 		else:
 			player.global_position = spawn_pos
+	var first_entry := house_id != _spawned_house_id
+	_spawned_house_id = house_id
 	if size_changed:
 		GameState.toast("House is now " + HouseLayout.label_for_tier(layout.size_tier))
-	else:
+	elif first_entry:
 		GameState.toast("Welcome to " + str(house.get("display_name", "house")))
 
 
@@ -224,8 +263,13 @@ func _offline_data_dir() -> String:
 	return "user://houses"
 
 
-func _enter_offline_mode(status_text: String = "Offline demo") -> void:
+func _enter_offline_mode(status_text: String = "Playing offline") -> void:
 	## Solo play without a server: enable decorate + load local persistence.
+	## Idempotent — repeated failures must not rebuild furniture or teleport.
+	if _offline_mode and _offline_layout != null:
+		ui.set_status(status_text)
+		return
+	offline_entries += 1
 	_offline_mode = true
 	_offline_store = HouseStore.new(_offline_data_dir())
 	var existing_id := _offline_store.get_house_id_for_owner(OFFLINE_OWNER_ID)
@@ -238,7 +282,9 @@ func _enter_offline_mode(status_text: String = "Offline demo") -> void:
 	placement.can_decorate = true
 	_apply_layout_geometry(_offline_layout)
 	_rebuild_furniture(_offline_layout.furniture)
-	player.global_position = space.spawn_position()
+	if _spawned_house_id != _offline_layout.house_id:
+		player.global_position = space.spawn_position()
+		_spawned_house_id = _offline_layout.house_id
 	ui.set_status(status_text)
 	ui.apply_house_state({
 		"house": _offline_layout.to_dict(),
@@ -419,7 +465,7 @@ func _on_left() -> void:
 		_remotes[pid].queue_free()
 	_remotes.clear()
 	# Return to solo decorate so Catalog still works after leaving a visit.
-	_enter_offline_mode("Offline demo")
+	_enter_offline_mode("Playing offline")
 
 
 func _on_err(info: Dictionary) -> void:

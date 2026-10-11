@@ -42,8 +42,18 @@ func _ready() -> void:
 	await _test_survival_progression_and_save()
 	_test_legacy_save_defaults_creative()
 	await _test_mode_select_ui()
+	# Production upgrade suites
+	await _run_suite("res://tests/suites/net_reconnect_suite.gd")
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
 	get_tree().quit(1 if failed > 0 else 0)
+
+
+func _run_suite(path: String) -> void:
+	var suite: Node = load(path).new()
+	suite.runner = self
+	add_child(suite)
+	await suite.run()
+	suite.queue_free()
 
 
 func _assert(cond: bool, msg: String) -> void:
