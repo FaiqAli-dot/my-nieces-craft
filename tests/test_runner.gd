@@ -37,6 +37,7 @@ func _ready() -> void:
 	_test_item_block_recipe_validation()
 	_test_inventory_stacks_and_overflow()
 	_test_mining_rules()
+	_test_tool_icons_and_durability()
 	await _test_survival_drops_and_pickup()
 	await _test_survival_progression_and_save()
 	_test_legacy_save_defaults_creative()
@@ -757,6 +758,39 @@ func _test_inventory_stacks_and_overflow() -> void:
 	# Ensure no empty slot
 	_assert(not inv.can_fit("wooden_pickaxe", 1) or inv.count_of("planks") == 3, "setup full-ish")
 	GameState.set_game_mode(GameState.Mode.CREATIVE)
+
+
+func _test_tool_icons_and_durability() -> void:
+	for id in ["sticks", "wooden_pickaxe", "stone_pickaxe", "wooden_axe", "stone_axe", "wooden_shovel", "stone_shovel", "crafting_table", "planks"]:
+		var tex := BlockDB.icon_texture(id)
+		_assert(tex != null, "icon for %s" % id)
+		# Procedural icons are ImageTexture; must not be a flat solid field only.
+		if tex is ImageTexture:
+			var img := (tex as ImageTexture).get_image()
+			_assert(img != null and img.get_width() >= 16, "icon image %s" % id)
+			var colors := {}
+			for y in mini(img.get_height(), 16):
+				for x in mini(img.get_width(), 16):
+					colors[img.get_pixel(x, y)] = true
+			_assert(colors.size() >= 2, "icon %s has multiple colors" % id)
+	var ItemIconsScr = preload("res://scripts/autoload/item_icons.gd")
+	_assert(ItemIconsScr.mode_card_texture("creative") != null, "creative card art")
+	_assert(ItemIconsScr.mode_card_texture("survival") != null, "survival card art")
+	GameState.set_game_mode(GameState.Mode.SURVIVAL)
+	var inv := Inventory.new(false)
+	inv.hotbar[0] = {"item": "wooden_pickaxe", "count": 1, "durability": 59}
+	inv.select(0)
+	_assert(int(MiningRules.tool_info("wooden_pickaxe").get("max_durability", 0)) == 59, "JE wood durability 59")
+	_assert(int(MiningRules.tool_info("stone_pickaxe").get("max_durability", 0)) == 131, "JE stone durability 131")
+	inv.damage_selected_tool(1)
+	_assert(int(inv.hotbar[0].get("durability", 0)) == 58, "durability decrements")
+	inv.hotbar[0]["durability"] = 1
+	inv.damage_selected_tool(1)
+	_assert(inv.selected_item() == "", "tool breaks at 0")
+	GameState.set_game_mode(GameState.Mode.CREATIVE)
+	inv.hotbar[0] = {"item": "wooden_pickaxe", "count": 1, "durability": 5}
+	inv.damage_selected_tool(1)
+	_assert(int(inv.hotbar[0].get("durability", 0)) == 5, "creative skips durability")
 
 
 func _test_mining_rules() -> void:

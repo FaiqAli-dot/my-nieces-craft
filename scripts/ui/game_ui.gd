@@ -2,6 +2,8 @@ extends CanvasLayer
 class_name GameUi
 ## Kid-friendly Sunny Toy Meadow HUD — modular touch controls + polished chrome.
 
+const ItemIconsScr = preload("res://scripts/autoload/item_icons.gd")
+
 var player: PlayerController
 ## Legacy bools kept in sync with ExclusivePanels for older tests.
 var _inventory_open := false
@@ -253,7 +255,7 @@ func _build_ui() -> void:
 	bag_grid.columns = 9
 	inv_v.add_child(bag_grid)
 
-	craft_panel = _make_panel(_root, "Craft", Vector2(500, 400))
+	craft_panel = _make_panel(_root, "Craft", Vector2(560, 440))
 	var craft_v: VBoxContainer = craft_panel.get_node("Margin/VBox")
 	var craft_hint := Label.new()
 	craft_hint.name = "CraftHint"
@@ -273,12 +275,21 @@ func _build_ui() -> void:
 	craft_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	craft_scroll.add_child(craft_list)
 
-	menu_panel = _make_panel(_root, "Menu", Vector2(360, 460))
+	menu_panel = _make_panel(_root, "Menu", Vector2(380, 520))
 	var menu_v: VBoxContainer = menu_panel.get_node("Margin/VBox")
+	# New World first — kids need an obvious way back to Creative / Survival.
+	var new_world_btn := Button.new()
+	new_world_btn.name = "NewWorldButton"
+	new_world_btn.text = "New World\nCreative or Survival"
+	new_world_btn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_theme_button(new_world_btn, Vector2(280, 72), COL_PINK)
+	if _font:
+		new_world_btn.add_theme_font_size_override("font_size", 22)
+	new_world_btn.pressed.connect(request_new_world)
+	menu_v.add_child(new_world_btn)
 	for spec in [
 		["Save", save_game],
 		["Load", load_game],
-		["New World…", request_new_world],
 		["My House", go_to_house],
 		["Reset…", request_reset],
 		["Home", func(): if player: player.reset_to_spawn()],
@@ -286,7 +297,7 @@ func _build_ui() -> void:
 	]:
 		var b := Button.new()
 		b.text = spec[0]
-		_theme_button(b, Vector2(260, 52), COL_ACCENT if spec[0] != "My House" and spec[0] != "New World…" else COL_PINK)
+		_theme_button(b, Vector2(280, 52), COL_ACCENT if spec[0] != "My House" else COL_SKY)
 		b.pressed.connect(spec[1])
 		menu_v.add_child(b)
 
@@ -451,65 +462,125 @@ func _build_craft_list() -> void:
 		c.queue_free()
 	var near_table := player != null and player.near_crafting_table()
 	var craft_sys: CraftingSystem = player.crafting if player else CraftingSystem.new()
-	var recipes: Array = craft_sys.visible_recipes(near_table)
 	var hint: Label = craft_panel.get_node_or_null("Margin/VBox/CraftHint") as Label
 	if hint:
 		if GameState.is_survival() and not near_table:
-			hint.text = "Basic crafts work now. Place a Crafting Table nearby for tools!"
+			hint.text = "Tap pictures to craft. Tools need a Crafting Table nearby!"
 		elif near_table:
-			hint.text = "Crafting Table ready — make pickaxes and more!"
+			hint.text = "Crafting Table ready — make tools!"
 		else:
-			hint.text = "Pick a recipe and tap Make."
-	for recipe in recipes:
-		var row := HBoxContainer.new()
-		var label := Label.new()
-		var inputs: Dictionary = recipe.get("inputs", {})
-		var parts: PackedStringArray = PackedStringArray()
-		for k in inputs.keys():
-			parts.append("%d %s" % [int(inputs[k]), BlockDB.display_name(k)])
-		var output: Dictionary = recipe.get("output", {})
-		var can := player != null and craft_sys.can_craft(recipe, player.inventory)
-		label.text = "%s → %dx %s" % [
-			", ".join(parts),
-			int(output.get("count", 1)),
-			BlockDB.display_name(str(output.get("item", "")))
-		]
-		if not can:
-			label.text += " (need items)"
-		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		label.add_theme_color_override("font_color", COL_INK if can else Color(0.45, 0.45, 0.5))
+			hint.text = "Tap Make when the pictures light up."
+	# Show every non-creative-only recipe (greyed if locked / missing items).
+	for recipe in craft_sys.recipes:
+		if bool(recipe.get("creative_only", false)) and not GameState.is_creative():
+			continue
+		craft_list.add_child(_make_recipe_row(recipe, craft_sys, near_table))
+
+
+func _make_recipe_row(recipe: Dictionary, craft_sys: CraftingSystem, near_table: bool) -> Control:
+	var station := str(recipe.get("station", "inventory"))
+	var needs_table := station == "crafting_table" and not near_table and GameState.is_survival()
+	var can_items := player != null and craft_sys.can_craft(recipe, player.inventory)
+	var can := can_items and not needs_table
+	var row := PanelContainer.new()
+	var bg := Color(1, 1, 1, 0.95) if can else Color(0.92, 0.92, 0.94, 0.9)
+	row.add_theme_stylebox_override("panel", _sb(bg, 14, Color(0.85, 0.75, 0.5) if can else Color(0.7, 0.7, 0.75), 2))
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 8)
+	margin.add_theme_constant_override("margin_right", 8)
+	margin.add_theme_constant_override("margin_top", 6)
+	margin.add_theme_constant_override("margin_bottom", 6)
+	row.add_child(margin)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 8)
+	margin.add_child(h)
+
+	var inputs: Dictionary = recipe.get("inputs", {})
+	for item_key in inputs.keys():
+		var need := int(inputs[item_key])
+		var have := player.inventory.count_of(str(item_key)) if player else 0
+		h.add_child(_ingredient_chip(str(item_key), need, have))
+
+	var arrow := Label.new()
+	arrow.text = "→"
+	arrow.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	arrow.add_theme_color_override("font_color", COL_INK if can else Color(0.55, 0.55, 0.6))
+	if _font:
+		arrow.add_theme_font_override("font", _font)
+		arrow.add_theme_font_size_override("font_size", 28)
+	h.add_child(arrow)
+
+	var output: Dictionary = recipe.get("output", {})
+	var out_item := str(output.get("item", ""))
+	var out_count := int(output.get("count", 1))
+	h.add_child(_ingredient_chip(out_item, out_count, out_count))
+
+	var side := VBoxContainer.new()
+	side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	side.alignment = BoxContainer.ALIGNMENT_CENTER
+	h.add_child(side)
+	var name_l := Label.new()
+	name_l.text = str(recipe.get("label", out_item))
+	name_l.add_theme_color_override("font_color", COL_INK if can else Color(0.5, 0.5, 0.55))
+	if _font:
+		name_l.add_theme_font_override("font", _font)
+		name_l.add_theme_font_size_override("font_size", 16)
+	side.add_child(name_l)
+	if needs_table:
+		var lock := Label.new()
+		lock.text = "Need table nearby"
+		lock.add_theme_color_override("font_color", Color("E57373"))
 		if _font:
-			label.add_theme_font_override("font", _font)
-			label.add_theme_font_size_override("font_size", 16)
-		var btn := Button.new()
-		btn.text = "Make"
-		btn.disabled = not can
-		_theme_button(btn, Vector2(100, 48), COL_GREEN if can else Color("B0BEC5"))
-		var rid := str(recipe.get("id", ""))
-		btn.pressed.connect(func():
-			if player:
-				player.craft(rid)
-				refresh_hotbar()
-				_build_craft_list()
-		)
-		row.add_child(label)
-		row.add_child(btn)
-		craft_list.add_child(row)
-	# Show locked table recipes as hints in Survival
-	if GameState.is_survival() and not near_table:
-		for recipe in craft_sys.recipes:
-			if str(recipe.get("station", "")) != "crafting_table":
-				continue
-			if bool(recipe.get("creative_only", false)):
-				continue
-			var locked := Label.new()
-			locked.text = "[Table] %s — place a Crafting Table nearby" % str(recipe.get("label", recipe.get("id", "")))
-			locked.add_theme_color_override("font_color", Color(0.5, 0.5, 0.55))
-			if _font:
-				locked.add_theme_font_override("font", _font)
-				locked.add_theme_font_size_override("font_size", 15)
-			craft_list.add_child(locked)
+			lock.add_theme_font_override("font", _font)
+			lock.add_theme_font_size_override("font_size", 14)
+		side.add_child(lock)
+	elif not can_items:
+		var miss := Label.new()
+		miss.text = "Need more"
+		miss.add_theme_color_override("font_color", Color("E57373"))
+		if _font:
+			miss.add_theme_font_override("font", _font)
+			miss.add_theme_font_size_override("font_size", 14)
+		side.add_child(miss)
+
+	var btn := Button.new()
+	btn.text = "Make"
+	btn.disabled = not can
+	_theme_button(btn, Vector2(88, 48), COL_GREEN if can else Color("B0BEC5"))
+	var rid := str(recipe.get("id", ""))
+	btn.pressed.connect(func():
+		if player:
+			player.craft(rid)
+			refresh_hotbar()
+			_build_craft_list()
+	)
+	h.add_child(btn)
+	row.modulate = Color(1, 1, 1, 1) if can else Color(1, 1, 1, 0.72)
+	return row
+
+
+func _ingredient_chip(item: String, need: int, have: int) -> Control:
+	var box := VBoxContainer.new()
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	var icon := TextureRect.new()
+	icon.texture = BlockDB.icon_texture(item)
+	icon.custom_minimum_size = Vector2(40, 40)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	var enough := have >= need
+	if not enough:
+		icon.modulate = Color(1, 1, 1, 0.55)
+	box.add_child(icon)
+	var count := Label.new()
+	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	count.text = str(need)
+	count.add_theme_color_override("font_color", COL_INK if enough else Color("E57373"))
+	if _font:
+		count.add_theme_font_override("font", _font)
+		count.add_theme_font_size_override("font_size", 16)
+	box.add_child(count)
+	box.tooltip_text = "%s (%d/%d)" % [BlockDB.display_name(item), have, need]
+	return box
 
 
 func toggle_inventory() -> void:
@@ -941,33 +1012,66 @@ func _build_mode_select() -> void:
 
 	row.add_child(_mode_picture_button(
 		"Creative",
+		"creative",
 		"Build anything!\nFly and place freely.",
 		COL_GREEN,
 		func(): _choose_mode(GameState.Mode.CREATIVE)
 	))
 	row.add_child(_mode_picture_button(
 		"Survival",
+		"survival",
 		"Empty bag!\nChop wood, craft tools.",
 		COL_SKY,
 		func(): _choose_mode(GameState.Mode.SURVIVAL)
 	))
 
 
-func _mode_picture_button(title: String, body: String, color: Color, on_press: Callable) -> Button:
+func _mode_picture_button(title: String, icon_key: String, body: String, color: Color, on_press: Callable) -> Button:
 	var b := Button.new()
 	b.name = "ModePick%s" % title
-	b.custom_minimum_size = Vector2(260, 220)
+	b.custom_minimum_size = Vector2(260, 240)
 	b.focus_mode = Control.FOCUS_NONE
-	b.text = "%s\n\n%s" % [title, body]
-	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	if _font:
-		b.add_theme_font_override("font", _font)
-		b.add_theme_font_size_override("font_size", 22)
-	b.add_theme_color_override("font_color", COL_INK)
+	b.text = ""
 	b.add_theme_stylebox_override("normal", _sb(color, 22, Color(1, 1, 1, 0.95), 4))
 	b.add_theme_stylebox_override("hover", _sb(color.lightened(0.1), 22, Color(1, 1, 1, 1), 5))
 	b.add_theme_stylebox_override("pressed", _sb(color.darkened(0.12), 22, COL_INK, 5))
 	b.pressed.connect(on_press)
+	var v := VBoxContainer.new()
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_theme_constant_override("separation", 8)
+	b.add_child(v)
+	var pad := Control.new()
+	pad.custom_minimum_size = Vector2(1, 12)
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(pad)
+	var icon := TextureRect.new()
+	icon.texture = ItemIconsScr.mode_card_texture(icon_key)
+	icon.custom_minimum_size = Vector2(72, 72)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(icon)
+	var t := Label.new()
+	t.text = title
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	t.add_theme_color_override("font_color", COL_INK)
+	if _font:
+		t.add_theme_font_override("font", _font)
+		t.add_theme_font_size_override("font_size", 28)
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(t)
+	var bl := Label.new()
+	bl.text = body
+	bl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	bl.add_theme_color_override("font_color", COL_INK)
+	if _font:
+		bl.add_theme_font_override("font", _font)
+		bl.add_theme_font_size_override("font_size", 16)
+	bl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(bl)
 	return b
 
 

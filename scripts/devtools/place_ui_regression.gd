@@ -56,8 +56,10 @@ func _run() -> void:
 	GameState.touch_controls_forced = false
 	ui.touch_layer.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	var wood_btn: Button = ui.hotbar.get_child(4) as Button
-	wood_btn.pressed.emit()
+	var wood_btn: Button = ui.hotbar_tray.get_slot_button(4) if ui.hotbar_tray else null
+	_assert(wood_btn != null, "hotbar slot 4 button exists")
+	if wood_btn:
+		wood_btn.pressed.emit()
 	await get_tree().process_frame
 	_assert(player.inventory.selected == 4, "hotbar UI selected slot 4")
 	_assert(player.inventory.selected_item() == "wood", "hotbar UI selected wood")

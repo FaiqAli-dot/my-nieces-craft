@@ -4,6 +4,7 @@ extends Node
 const BLOCKS_PATH := "res://data/blocks/blocks.json"
 const ITEMS_PATH := "res://data/blocks/items.json"
 const TEXTURE_DIR := "res://assets/textures/blocks/"
+const ItemIconsScr = preload("res://scripts/autoload/item_icons.gd")
 
 var _by_name: Dictionary = {}
 var _by_id: Dictionary = {}
@@ -181,6 +182,10 @@ func get_face_uv(block_id: int, face: String) -> Rect2:
 
 
 func icon_texture(item: String) -> Texture2D:
+	# Procedural pixel icons for tools / non-block items first
+	var drawn: Texture2D = ItemIconsScr.texture_for(item)
+	if drawn != null:
+		return drawn
 	if _by_name.has(item):
 		var texs: Dictionary = _by_name[item].get("textures", {})
 		var file := str(texs.get("all", texs.get("side", texs.get("top", ""))))
@@ -188,18 +193,17 @@ func icon_texture(item: String) -> Texture2D:
 			var path := TEXTURE_DIR + file
 			if ResourceLoader.exists(path):
 				return load(path)
-	# colored placeholder for non-block items
+	# Last resort: lightly patterned color (should be rare)
 	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
 	var col := Color(0.7, 0.55, 0.3)
 	if _items.has(item):
 		var arr = _items[item].get("icon_color", [0.7, 0.55, 0.3])
 		col = Color(arr[0], arr[1], arr[2])
 	img.fill(col)
-	# Simple tool glyph: darker top band
-	if _items.has(item) and str(_items[item].get("category", "")) == "tool":
-		for y in 10:
-			for x in 32:
-				img.set_pixel(x, y, col.darkened(0.25))
+	for y in 32:
+		for x in 32:
+			if ((x + y) % 4) == 0:
+				img.set_pixel(x, y, col.darkened(0.12))
 	return ImageTexture.create_from_image(img)
 
 
