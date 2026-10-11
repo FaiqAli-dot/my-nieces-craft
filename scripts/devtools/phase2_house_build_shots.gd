@@ -86,14 +86,35 @@ func _run() -> void:
 	_house.cancel_placement()
 	await get_tree().process_frame
 
-	# Select + move/copy/remove toolbar context
+	# Select + move/copy/remove toolbar context — house cluster uses shared BuildToolIcons
 	if not _house._furniture.is_empty():
 		var iid := str(_house._furniture.keys()[0])
 		_house._set_selected(iid)
+	# Seed history so Undo/Redo affordances are meaningful in the catalog tool row.
+	_house.build_history.push(BuildHistory.furniture_place("shot_hist", "lamp", Vector2i(6, 6), 0))
+	var _hu := _house.build_history.pop_undo()
 	ui.open_catalog()
+	await get_tree().process_frame
+	ui.build_catalog.refresh()
 	await get_tree().process_frame
 	await _shot("12_house_tools_catalog_%s.png" % tag)
 	ui.panels.close_all()
+	await get_tree().process_frame
+	await _shot("12b_house_cluster_%s.png" % tag)
+
+	# Mid-drag furniture from catalog onto floor
+	ui._on_catalog_drag_started(BuildCatalog.furniture_entry("plant"), 0)
+	await get_tree().process_frame
+	placement.set_physics_process(false)
+	placement._anchor = Vector2i(7, 5)
+	placement._valid = true
+	placement._last_reason = FurnitureValidator.Reason.OK
+	placement._update_preview_xform()
+	placement._tint(true)
+	await get_tree().process_frame
+	await _shot("12c_house_mid_drag_%s.png" % tag)
+	placement.set_physics_process(true)
+	_house.cancel_placement()
 
 	_house.undo_build()
 	await get_tree().process_frame

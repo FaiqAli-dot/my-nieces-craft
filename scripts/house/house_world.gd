@@ -763,9 +763,11 @@ func _history_place(e: Dictionary) -> bool:
 	var def_id := str(e.get("def_id", ""))
 	var cell := Vector2i(int(e.get("cell_x", 0)), int(e.get("cell_z", 0)))
 	var rot := int(e.get("rotation", 0))
+	var iid := str(e.get("instance_id", ""))
 	if is_online_decorating():
 		_expect_online_op = {"kind": "history_ignore"}
-		NetClient.place_furniture(def_id, cell, rot)
+		# Ask the authority to restore the same instance_id (tombstone-validated).
+		NetClient.place_furniture(def_id, cell, rot, iid)
 		GameState.toast("Redo sent")
 		return true
 	var occupied := FurnitureValidator.build_occupied_map(_furniture_instance_list())
@@ -775,7 +777,6 @@ func _history_place(e: Dictionary) -> bool:
 	if reason != FurnitureValidator.Reason.OK:
 		GameState.toast(FurnitureValidator.reason_text(reason))
 		return false
-	var iid := str(e.get("instance_id", ""))
 	if iid == "" or _furniture.has(iid):
 		iid = "furn_local_%d" % Time.get_ticks_usec()
 	var inst := {

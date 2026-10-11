@@ -85,17 +85,37 @@ func _run() -> void:
 	_player.set_physics_process(true)
 	_player.world.set_block(gx, VoxelWorld.GROUND_Y + 1, gz, 0, true)
 
-	# Valid place + history tools
+	# Valid place + history tools (seed undo/redo so tool row shows enabled icons)
 	_aim_place_cell(35, VoxelWorld.GROUND_Y + 1, 32)
 	await get_tree().physics_frame
 	_player.try_place()
 	await get_tree().process_frame
+	# Extra history entry so Undo is enabled; pop once so Redo is also enabled.
+	_player.build_history.push(BuildHistory.block_place(Vector3i(34, VoxelWorld.GROUND_Y + 1, 32), "dirt", BlockDB.place_block_id("dirt"), 0))
+	var _tmp := _player.build_history.pop_undo()
 	_ui.toggle_build_catalog()
 	await get_tree().process_frame
+	_ui.build_catalog.refresh()
+	await get_tree().process_frame
+	# Force busy session so Cancel shows enabled; keep toast away from header.
+	GameState.toast("Back to start!")
+	_ui._layout_toast_for_panels()
+	await get_tree().process_frame
 	await _shot("04_after_place_catalog_%s.png" % tag)
+	await _shot("04b_tool_row_%s.png" % tag)
 	_ui.panels.close_all()
 
-	# Survival resource label
+	# Mid-drag: catalog closed, drag session active, green preview at drop cell
+	_ui._on_build_drag_started(BuildCatalog.block_entry("dirt"), 0)
+	_aim_place_cell(36, VoxelWorld.GROUND_Y + 1, 33)
+	await get_tree().physics_frame
+	_player._update_targeting()
+	await get_tree().process_frame
+	await _shot("04c_mid_drag_%s.png" % tag)
+	_player.build_session.end_drag()
+	_player.clear_build_selection()
+
+	# Survival resource / cost label
 	GameState.set_game_mode(GameState.Mode.SURVIVAL)
 	_player.inventory.clear()
 	_player.inventory.add_item("cobble", 3)
@@ -106,6 +126,7 @@ func _run() -> void:
 	_ui.build_catalog.set_selected_entry(BuildCatalog.block_entry("cobble"))
 	await get_tree().process_frame
 	await _shot("05_survival_resources_%s.png" % tag)
+	await _shot("05b_survival_cost_%s.png" % tag)
 	_ui.panels.close_all()
 	GameState.set_game_mode(GameState.Mode.CREATIVE)
 

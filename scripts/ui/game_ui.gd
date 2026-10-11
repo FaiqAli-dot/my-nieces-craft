@@ -206,16 +206,17 @@ func _build_ui() -> void:
 	top_row.add_child(menu_btn)
 
 	toast_label = Label.new()
+	toast_label.name = "Toast"
 	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	toast_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	toast_label.offset_top = 70
-	toast_label.offset_left = -220
-	toast_label.offset_right = 220
-	toast_label.offset_bottom = 110
+	toast_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	toast_label.offset_top = -150
+	toast_label.offset_bottom = -110
+	toast_label.offset_left = -260
+	toast_label.offset_right = 260
 	toast_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if _font:
 		toast_label.add_theme_font_override("font", _font)
-		toast_label.add_theme_font_size_override("font_size", 28)
+		toast_label.add_theme_font_size_override("font_size", 24)
 	toast_label.add_theme_color_override("font_color", COL_INK)
 	_root.add_child(toast_label)
 
@@ -334,10 +335,10 @@ func _build_ui() -> void:
 	build_catalog = BuildCatalogPanel.new()
 	build_catalog.name = "BuildCatalog"
 	build_catalog.set_anchors_preset(Control.PRESET_CENTER)
-	build_catalog.offset_left = -290
-	build_catalog.offset_top = -250
-	build_catalog.offset_right = 290
-	build_catalog.offset_bottom = 250
+	build_catalog.offset_left = -320
+	build_catalog.offset_top = -310
+	build_catalog.offset_right = 320
+	build_catalog.offset_bottom = 310
 	build_catalog.closed_requested.connect(func(): panels.close("catalog"))
 	build_catalog.item_selected.connect(_on_build_item_selected)
 	build_catalog.item_drag_started.connect(_on_build_drag_started)
@@ -345,6 +346,9 @@ func _build_ui() -> void:
 	build_catalog.tool_pressed.connect(_on_build_tool)
 	_root.add_child(build_catalog)
 	catalog_panel = build_catalog
+	# Keep toast under the catalog so "Back to start!" never covers the Build header.
+	if toast_label:
+		_root.move_child(toast_label, -1)
 
 	panels.register("inventory", inventory_panel)
 	panels.register("craft", craft_panel)
@@ -625,6 +629,7 @@ func _sync_panel_flags() -> void:
 func _on_panel_opened(id: String) -> void:
 	_sync_panel_flags()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_layout_toast_for_panels()
 	if id == "inventory":
 		_refresh_inventory_panel()
 	elif id == "craft":
@@ -635,11 +640,29 @@ func _on_panel_opened(id: String) -> void:
 
 func _on_panel_closed(_id: String) -> void:
 	_sync_panel_flags()
+	_layout_toast_for_panels()
 
 
 func _on_panels_all_closed() -> void:
 	_sync_panel_flags()
+	_layout_toast_for_panels()
 	_restore_play_mouse()
+
+
+func _layout_toast_for_panels() -> void:
+	## Keep toast away from the centered Build catalog header.
+	if toast_label == null:
+		return
+	if panels.is_open("catalog"):
+		toast_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+		toast_label.offset_top = -96
+		toast_label.offset_bottom = -56
+	else:
+		toast_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+		toast_label.offset_top = -150
+		toast_label.offset_bottom = -110
+	toast_label.offset_left = -260
+	toast_label.offset_right = 260
 
 
 func _restore_play_mouse() -> void:

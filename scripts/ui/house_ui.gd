@@ -42,6 +42,8 @@ var jump_btn: ActionButton
 var move_btn: ActionButton
 var copy_btn: ActionButton
 var undo_btn: ActionButton
+var redo_btn: ActionButton
+var remove_btn: ActionButton
 var size_btn: Button
 var size_chip: Label
 var _toast_timer := 0.0
@@ -333,13 +335,15 @@ func _build_touch(root: Control) -> void:
 	cluster.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	touch_layer.add_child(cluster)
 
-	place_btn = _action_btn("Place", COL_SKY, "res://assets/ui/icons/icon_place.png")
-	rotate_btn = _action_btn("Rotate", COL_PINK, "res://assets/ui/icons/icon_rotate.png")
-	cancel_btn = _action_btn("Cancel", COL_CORAL, "res://assets/ui/icons/icon_break.png")
+	place_btn = _action_btn("Place", COL_SKY, BuildToolIcons.PLACE)
+	rotate_btn = _action_btn("Rotate", COL_PINK, BuildToolIcons.ROTATE)
+	cancel_btn = _action_btn("Cancel", COL_CORAL, BuildToolIcons.CANCEL)
 	jump_btn = _action_btn("Jump", COL_GREEN, "res://assets/ui/icons/icon_jump.png")
-	move_btn = _action_btn("Move", COL_ACCENT, "res://assets/ui/icons/icon_place.png")
-	copy_btn = _action_btn("Copy", COL_SKY, "res://assets/ui/icons/icon_craft.png")
-	undo_btn = _action_btn("Undo", COL_PINK, "res://assets/ui/icons/icon_menu.png")
+	move_btn = _action_btn("Move", COL_ACCENT, BuildToolIcons.MOVE)
+	copy_btn = _action_btn("Copy", COL_SKY, BuildToolIcons.COPY)
+	remove_btn = _action_btn("Remove", COL_CORAL, BuildToolIcons.REMOVE)
+	undo_btn = _action_btn("Undo", COL_PINK, BuildToolIcons.UNDO)
+	redo_btn = _action_btn("Redo", COL_ACCENT, BuildToolIcons.REDO)
 	place_btn.pressed.connect(func():
 		if world and world.placement.mode != PlacementController.Mode.IDLE:
 			world.placement.confirm()
@@ -364,13 +368,21 @@ func _build_touch(root: Control) -> void:
 		if world and world.has_method("start_copy_selected"):
 			world.start_copy_selected()
 	)
+	remove_btn.pressed.connect(func():
+		if world and world.has_method("remove_selected"):
+			world.remove_selected()
+	)
 	undo_btn.pressed.connect(func():
 		if world and world.has_method("undo_build"):
 			world.undo_build()
 	)
-	for btn in [place_btn, rotate_btn, cancel_btn, jump_btn, move_btn, copy_btn, undo_btn]:
+	redo_btn.pressed.connect(func():
+		if world and world.has_method("redo_build"):
+			world.redo_build()
+	)
+	for btn in [place_btn, rotate_btn, cancel_btn, jump_btn, move_btn, copy_btn, remove_btn, undo_btn, redo_btn]:
 		cluster.add_child(btn)
-	cluster.set_meta("buttons", [place_btn, rotate_btn, cancel_btn, jump_btn, move_btn, copy_btn, undo_btn])
+	cluster.set_meta("buttons", [place_btn, rotate_btn, cancel_btn, jump_btn, move_btn, copy_btn, remove_btn, undo_btn, redo_btn])
 
 
 func _action_btn(label: String, color: Color, icon: String) -> ActionButton:
@@ -429,47 +441,36 @@ func _layout_touch() -> void:
 	var cluster: Control = touch_layer.get_node_or_null("HouseActions")
 	if cluster == null:
 		return
-	var btn_sz := 72.0 * scale
-	var gap := 8.0 * scale
-	var stack_h := btn_sz * 4.0 + gap * 3.0
-	var cluster_w := btn_sz * 2.0 + gap + 8.0
+	var btn_sz := 64.0 * scale
+	var gap := 6.0 * scale
+	var cols := 3
+	var rows := 3
+	var cluster_w := btn_sz * cols + gap * (cols - 1) + 8.0
+	var stack_h := btn_sz * rows + gap * (rows - 1) + 8.0
 	cluster.anchor_left = 1.0
 	cluster.anchor_top = 1.0
 	cluster.anchor_right = 1.0
 	cluster.anchor_bottom = 1.0
-	cluster.offset_left = -cluster_w - 12.0
-	cluster.offset_top = -stack_h - 16.0
-	cluster.offset_right = -12.0
-	cluster.offset_bottom = -12.0
-	# Primary column (right): Place / Rotate / Cancel / Jump — same order as Phase 1 tests.
-	var y := 0.0
-	var x_main := btn_sz + gap
-	for btn in [place_btn, rotate_btn, cancel_btn, jump_btn]:
+	cluster.offset_left = -cluster_w - 10.0
+	cluster.offset_top = -stack_h - 14.0
+	cluster.offset_right = -10.0
+	cluster.offset_bottom = -10.0
+	# 3×3 grid: Move/Place/Copy · Rotate/Undo/Redo · Remove/Cancel/Jump
+	var order: Array = [move_btn, place_btn, copy_btn, rotate_btn, undo_btn, redo_btn, remove_btn, cancel_btn, jump_btn]
+	for i in order.size():
+		var btn: ActionButton = order[i]
 		if btn == null:
 			continue
+		var col := i % cols
+		var row := int(i / cols)
 		btn.button_size = btn_sz
 		btn.custom_minimum_size = Vector2(btn_sz, btn_sz)
 		btn.size = Vector2(btn_sz, btn_sz)
-		btn.position = Vector2(x_main, y)
+		btn.position = Vector2(col * (btn_sz + gap), row * (btn_sz + gap))
 		if btn.has_method("_layout_children"):
 			btn._layout_children()
 		if btn.has_method("_apply_style"):
 			btn._apply_style(false)
-		y += btn_sz + gap
-	# Secondary column (left): Move / Copy / Undo
-	y = 0.0
-	for btn in [move_btn, copy_btn, undo_btn]:
-		if btn == null:
-			continue
-		btn.button_size = btn_sz
-		btn.custom_minimum_size = Vector2(btn_sz, btn_sz)
-		btn.size = Vector2(btn_sz, btn_sz)
-		btn.position = Vector2(0, y)
-		if btn.has_method("_layout_children"):
-			btn._layout_children()
-		if btn.has_method("_apply_style"):
-			btn._apply_style(false)
-		y += btn_sz + gap
 
 
 func _on_move_changed(v: Vector2) -> void:

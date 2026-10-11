@@ -156,14 +156,18 @@ func send_move(pos: Vector3, yaw: float, moving: bool) -> void:
 	})
 
 
-func place_furniture(def_id: String, cell: Vector2i, rotation: int) -> void:
-	send(NetProtocol.C_FURN_PLACE, {
+func place_furniture(def_id: String, cell: Vector2i, rotation: int, restore_instance_id: String = "") -> void:
+	var payload := {
 		"def_id": def_id,
 		"cell_x": cell.x,
 		"cell_z": cell.y,
 		"rotation": rotation,
 		"revision": revision,
-	}, true)
+	}
+	# Optional restore id: server accepts only tombstoned (previously removed) ids.
+	if restore_instance_id != "":
+		payload["instance_id"] = restore_instance_id
+	send(NetProtocol.C_FURN_PLACE, payload, true)
 
 
 func move_furniture(instance_id: String, cell: Vector2i, rotation: int) -> void:

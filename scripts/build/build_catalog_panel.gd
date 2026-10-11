@@ -17,6 +17,7 @@ const COL_GREEN := Color("8FCB6B")
 const COL_CORAL := Color("E57373")
 const COL_ACCENT := Color("F2C14E")
 const COL_SELECTED := Color("FFE08A")
+const COL_DISABLED := Color("D0C4B4")
 
 var context: String = "meadow" ## meadow | house
 var inventory: Inventory
@@ -29,15 +30,17 @@ var _tabs: HBoxContainer
 var _grid: GridContainer
 var _hint: Label
 var _resource: Label
-var _tools: HBoxContainer
+var _tools: VBoxContainer
 var _selected_id: String = ""
 var _drag_entry: Dictionary = {}
 var _drag_pointer := -1
 var _drag_armed := false
 var _drag_start := Vector2.ZERO
 var _card_buttons: Dictionary = {} # id -> Button
+var _tool_buttons: Dictionary = {} # tool_id -> Button
 
 const DRAG_THRESHOLD := 18.0
+const TOOL_SIZE := Vector2(92, 84)
 
 
 func _ready() -> void:
@@ -76,7 +79,7 @@ func set_selected_entry(entry: Dictionary) -> void:
 
 
 func _build() -> void:
-	custom_minimum_size = Vector2(580, 560)
+	custom_minimum_size = Vector2(620, 620)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = COL_PANEL
 	sb.corner_radius_top_left = 22
@@ -114,7 +117,7 @@ func _build() -> void:
 
 	_hint = Label.new()
 	_hint.name = "Hint"
-	_hint.text = "Tap a block, then tap a spot to place."
+	_hint.text = "Tap a card, then tap a spot to place."
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.add_theme_color_override("font_color", COL_INK)
@@ -141,7 +144,7 @@ func _build() -> void:
 	var scroll := ScrollContainer.new()
 	scroll.name = "Scroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.custom_minimum_size = Vector2(0, 240)
+	scroll.custom_minimum_size = Vector2(0, 200)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	vbox.add_child(scroll)
 
@@ -153,24 +156,47 @@ func _build() -> void:
 	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(_grid)
 
-	_tools = HBoxContainer.new()
+	_tools = VBoxContainer.new()
 	_tools.name = "Tools"
-	_tools.add_theme_constant_override("separation", 6)
-	_tools.alignment = BoxContainer.ALIGNMENT_CENTER
+	_tools.add_theme_constant_override("separation", 8)
 	_tools.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(_tools)
 
 	var close_btn := Button.new()
 	close_btn.name = "Close"
 	close_btn.text = "Close"
-	_style_btn(close_btn, Vector2(160, 52), COL_CORAL)
+	_style_btn(close_btn, Vector2(160, 52), COL_CORAL, true)
 	close_btn.pressed.connect(func(): closed_requested.emit())
 	vbox.add_child(close_btn)
 
 
-func _style_btn(b: Button, min_size: Vector2, bg: Color) -> void:
+func _style_btn(b: Button, min_size: Vector2, bg: Color, enabled: bool = true) -> void:
 	b.custom_minimum_size = min_size
 	b.focus_mode = Control.FOCUS_NONE
+	var use_bg := bg if enabled else COL_DISABLED
+	var n := _make_sb(use_bg)
+	b.add_theme_stylebox_override("normal", n)
+	var h := _make_sb(use_bg.lightened(0.08))
+	b.add_theme_stylebox_override("hover", h)
+	var p := _make_sb(use_bg.darkened(0.1))
+	b.add_theme_stylebox_override("pressed", p)
+	# Root cause of blank tools: Godot uses `disabled` style/font when disabled=true.
+	# Without overrides, disabled buttons render as empty grey boxes with invisible text.
+	var d := _make_sb(COL_DISABLED)
+	b.add_theme_stylebox_override("disabled", d)
+	var ink := COL_INK if enabled else COL_INK.lightened(0.35)
+	b.add_theme_color_override("font_color", ink)
+	b.add_theme_color_override("font_hover_color", ink)
+	b.add_theme_color_override("font_pressed_color", ink)
+	b.add_theme_color_override("font_disabled_color", ink)
+	b.add_theme_color_override("icon_normal_color", Color.WHITE if enabled else Color(1, 1, 1, 0.7))
+	b.add_theme_color_override("icon_disabled_color", Color(1, 1, 1, 0.7))
+	if _font:
+		b.add_theme_font_override("font", _font)
+		b.add_theme_font_size_override("font_size", 15)
+
+
+func _make_sb(bg: Color) -> StyleBoxFlat:
 	var n := StyleBoxFlat.new()
 	n.bg_color = bg
 	n.corner_radius_top_left = 16
@@ -182,17 +208,11 @@ func _style_btn(b: Button, min_size: Vector2, bg: Color) -> void:
 	n.border_width_right = 3
 	n.border_width_bottom = 3
 	n.border_color = Color(1, 1, 1, 0.9)
-	b.add_theme_stylebox_override("normal", n)
-	var h := n.duplicate() as StyleBoxFlat
-	h.bg_color = bg.lightened(0.08)
-	b.add_theme_stylebox_override("hover", h)
-	var p := n.duplicate() as StyleBoxFlat
-	p.bg_color = bg.darkened(0.1)
-	b.add_theme_stylebox_override("pressed", p)
-	b.add_theme_color_override("font_color", COL_INK)
-	if _font:
-		b.add_theme_font_override("font", _font)
-		b.add_theme_font_size_override("font_size", 18)
+	n.content_margin_left = 4
+	n.content_margin_right = 4
+	n.content_margin_top = 4
+	n.content_margin_bottom = 4
+	return n
 
 
 func _rebuild_tabs() -> void:
@@ -203,7 +223,7 @@ func _rebuild_tabs() -> void:
 		b.text = BuildCatalog.category_label(cat)
 		b.toggle_mode = true
 		b.button_pressed = cat == _category
-		_style_btn(b, Vector2(120, 44), COL_SKY if cat == _category else COL_ACCENT)
+		_style_btn(b, Vector2(120, 44), COL_SKY if cat == _category else COL_ACCENT, true)
 		var chosen := cat
 		b.pressed.connect(func():
 			_category = chosen
@@ -238,12 +258,11 @@ func _make_card(entry: Dictionary) -> Button:
 		b.icon = icon
 		b.add_theme_constant_override("icon_max_width", 56)
 	var selected := id == _selected_id
-	_style_btn(b, Vector2(150, 110), COL_SELECTED if selected else COL_PANEL.darkened(0.02))
+	_style_btn(b, Vector2(150, 110), COL_SELECTED if selected else COL_PANEL.darkened(0.02), true)
 	if _font:
 		b.add_theme_font_override("font", _font)
 		b.add_theme_font_size_override("font_size", 16)
 	b.set_meta("entry", entry)
-	# Tap selects; drag beyond threshold starts drag-place.
 	b.gui_input.connect(func(ev: InputEvent): _on_card_input(b, entry, ev))
 	b.pressed.connect(func(): _on_card_pressed(entry))
 	_card_buttons[id] = b
@@ -251,7 +270,6 @@ func _make_card(entry: Dictionary) -> Button:
 
 
 func _on_card_pressed(entry: Dictionary) -> void:
-	## Pure tap: select only (no world place).
 	if _drag_armed and _drag_pointer >= 0:
 		return
 	_selected_id = str(entry.get("id", ""))
@@ -272,8 +290,7 @@ func _on_card_input(btn: Button, entry: Dictionary, ev: InputEvent) -> void:
 		else:
 			if _drag_pointer == st.index and not _drag_entry.is_empty() and session != null and session.drag_active:
 				var screen := btn.get_global_transform_with_canvas() * st.position
-				var over_ui := _screen_over_blocking_ui(screen)
-				item_drag_ended.emit(_drag_entry, screen, over_ui)
+				item_drag_ended.emit(_drag_entry, screen, _screen_over_blocking_ui(screen))
 			_drag_armed = false
 			_drag_pointer = -1
 			_drag_entry = {}
@@ -312,7 +329,6 @@ func _on_card_input(btn: Button, entry: Dictionary, ev: InputEvent) -> void:
 
 
 func _screen_over_blocking_ui(screen: Vector2) -> bool:
-	## Dropping back on the catalog / other HUD cancels placement.
 	var root := get_viewport().get_gui_at_point(screen) as Control
 	if root == null:
 		return false
@@ -332,7 +348,7 @@ func _update_card_selection() -> void:
 		if not is_instance_valid(b):
 			continue
 		var selected := str(id) == _selected_id
-		_style_btn(b, Vector2(150, 110), COL_SELECTED if selected else COL_PANEL.darkened(0.02))
+		_style_btn(b, Vector2(150, 110), COL_SELECTED if selected else COL_PANEL.darkened(0.02), true)
 
 
 func _update_hint() -> void:
@@ -341,7 +357,7 @@ func _update_hint() -> void:
 	if _selected_id == "":
 		_hint.text = "Tap a card, then tap a spot to place."
 	else:
-		_hint.text = "Tap a spot to place. Drag from a card works too. Cancel clears the choice."
+		_hint.text = "Tap a spot to place. Drag from a card works too."
 
 
 func _update_resource(entry: Dictionary) -> void:
@@ -357,46 +373,58 @@ func _update_resource(entry: Dictionary) -> void:
 	_resource.text = txt if txt != "" else ""
 
 
+func _clear_tools_immediate() -> void:
+	## free() not queue_free(): avoid one-frame blank duplicates while old nodes linger.
+	for c in _tools.get_children():
+		_tools.remove_child(c)
+		c.free()
+	_tool_buttons.clear()
+
+
 func _update_tools() -> void:
 	if _tools == null:
 		return
-	for c in _tools.get_children():
-		c.queue_free()
-	# Two rows so Rotate/Undo/Redo/Cancel stay visible on phone widths.
+	_clear_tools_immediate()
 	var row1 := HBoxContainer.new()
-	row1.add_theme_constant_override("separation", 6)
+	row1.add_theme_constant_override("separation", 8)
 	row1.alignment = BoxContainer.ALIGNMENT_CENTER
+	row1.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var row2 := HBoxContainer.new()
-	row2.add_theme_constant_override("separation", 6)
+	row2.add_theme_constant_override("separation", 8)
 	row2.alignment = BoxContainer.ALIGNMENT_CENTER
-	var wrap := VBoxContainer.new()
-	wrap.add_theme_constant_override("separation", 6)
-	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	wrap.add_child(row1)
-	wrap.add_child(row2)
-	_tools.add_child(wrap)
-	var tools := [
-		["Rotate", "rotate", COL_PINK],
-		["Move", "move", COL_SKY],
-		["Copy", "copy", COL_GREEN],
-		["Remove", "remove", COL_CORAL],
-		["Undo", "undo", COL_ACCENT],
-		["Redo", "redo", COL_ACCENT],
-		["Cancel", "cancel", COL_CORAL],
-	]
+	row2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tools.add_child(row1)
+	_tools.add_child(row2)
 	var i := 0
-	for spec in tools:
-		var b := Button.new()
-		b.text = spec[0]
-		b.name = "Tool_%s" % spec[1]
-		_style_btn(b, Vector2(68, 44), spec[2])
-		var tid: String = spec[1]
+	for spec in BuildToolIcons.TOOL_SPECS:
+		var tid := str(spec["id"])
 		var enabled := _tool_enabled(tid)
-		b.disabled = not enabled
-		b.modulate = Color(1, 1, 1, 1) if enabled else Color(1, 1, 1, 0.45)
-		b.pressed.connect(func(): tool_pressed.emit(tid))
+		var b := _make_tool_button(tid, str(spec["label"]), str(spec["icon"]), spec["color"] as Color, enabled)
 		(row1 if i < 4 else row2).add_child(b)
+		_tool_buttons[tid] = b
 		i += 1
+
+
+func _make_tool_button(tool_id: String, label: String, icon_path: String, color: Color, enabled: bool) -> Button:
+	var b := Button.new()
+	b.name = "Tool_%s" % tool_id
+	b.text = label
+	b.focus_mode = Control.FOCUS_NONE
+	b.expand_icon = true
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+	b.clip_text = false
+	if ResourceLoader.exists(icon_path):
+		b.icon = load(icon_path)
+		b.add_theme_constant_override("icon_max_width", 36)
+	_style_btn(b, TOOL_SIZE, color, enabled)
+	b.disabled = not enabled
+	# Keep labels/icons readable when disabled (do not blank out via modulate alone).
+	b.modulate = Color(1, 1, 1, 1)
+	if not enabled:
+		b.tooltip_text = "%s (not available right now)" % label
+	b.pressed.connect(func(): tool_pressed.emit(tool_id))
+	return b
 
 
 func _tool_enabled(tool_id: String) -> bool:
@@ -404,7 +432,7 @@ func _tool_enabled(tool_id: String) -> bool:
 		"rotate":
 			return session != null and session.is_busy() and bool(session.entry.get("supports_rotation", false))
 		"move", "copy", "remove":
-			return true ## host enables based on world selection
+			return true
 		"undo":
 			return history != null and history.can_undo()
 		"redo":
