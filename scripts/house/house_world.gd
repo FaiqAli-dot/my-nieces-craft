@@ -18,6 +18,12 @@ var _leaving := false
 var _offline_mode := false
 var _offline_store: HouseStore
 var _offline_layout: HouseLayout
+## Phase 2 shared build foundation (local to this house scene).
+var build_history := BuildHistory.new()
+var build_session := BuildSession.new()
+var _pending_copy := false
+var _move_from: Dictionary = {} # instance_id -> {cell, rotation, def_id}
+var _expect_online_op: Dictionary = {} # op_kind -> payload awaiting upsert/remove
 
 
 func _ready() -> void:
@@ -28,11 +34,12 @@ func _ready() -> void:
 	placement.room_min = space.room_min
 	placement.room_max = space.room_max
 	placement.set_instances(_furniture)
+	placement.repeat_place = true
 
 	placement.placement_requested.connect(_on_place_req)
 	placement.edit_move_requested.connect(_on_move_req)
 	placement.edit_remove_requested.connect(_on_remove_req)
-	placement.placement_cancelled.connect(func(): player.placement_locked = false)
+	placement.placement_cancelled.connect(_on_placement_cancelled)
 
 	player.moved.connect(_on_local_moved)
 	player.global_position = space.spawn_position()
@@ -52,6 +59,7 @@ func _ready() -> void:
 			or OS.get_environment("COZY_SCREENSHOTS") == "1"
 			or OS.get_environment("COZY_HOUSE_PLACE_TEST") == "1"
 			or OS.get_environment("COZY_HOUSE_PLACE_SHOTS") == "1"
+			or OS.get_environment("COZY_PHASE2_HOUSE_SHOTS") == "1"
 		)
 		if not skip_probe:
 			# If the server is down, fall into offline decorate (same as AUTOSTART=0).
@@ -88,6 +96,10 @@ func _ready() -> void:
 		var place_shots := Node.new()
 		place_shots.set_script(load("res://scripts/devtools/house_place_shots.gd"))
 		add_child(place_shots)
+	if OS.get_environment("COZY_PHASE2_HOUSE_SHOTS") == "1":
+		var p2h := Node.new()
+		p2h.set_script(load("res://scripts/devtools/phase2_house_build_shots.gd"))
+		add_child(p2h)
 	if OS.get_environment("COZY_SCREENSHOTS") == "1":
 		await get_tree().create_timer(1.2).timeout
 		await _run_shot_harness()
@@ -388,18 +400,68 @@ func _ensure_remote(info: Dictionary) -> RemotePlayer:
 
 func _on_furn_upsert(info: Dictionary) -> void:
 	var inst: Dictionary = info.get("instance", {})
+	var iid := str(inst.get("instance_id", ""))
+	var existed := _furniture.has(iid)
 	_spawn_furniture(inst)
 	placement.set_instances(_furniture)
+	_record_online_upsert(inst, existed)
 
 
 func _on_furn_removed(info: Dictionary) -> void:
 	var iid := str(info.get("instance_id", ""))
+	_record_online_remove(iid)
 	if _furniture.has(iid):
 		_furniture[iid].queue_free()
 		_furniture.erase(iid)
 	if _selected_id == iid:
 		_selected_id = ""
 	placement.set_instances(_furniture)
+
+
+func _record_online_upsert(inst: Dictionary, existed: bool) -> void:
+	var expect := _expect_online_op
+	_expect_online_op = {}
+	if expect.is_empty() or str(expect.get("kind", "")) == "history_ignore":
+		return
+	var iid := str(inst.get("instance_id", ""))
+	var def_id := str(inst.get("def_id", ""))
+	var cell := Vector2i(int(inst.get("cell_x", 0)), int(inst.get("cell_z", 0)))
+	var rot := int(inst.get("rotation", 0))
+	var kind := str(expect.get("kind", ""))
+	match kind:
+		"place":
+			build_history.push(BuildHistory.furniture_place(iid, def_id, cell, rot, NetClient.revision))
+		"copy":
+			build_history.push(BuildHistory.furniture_copy(iid, def_id, cell, rot, NetClient.revision))
+		"move":
+			if str(expect.get("instance_id", "")) == iid or existed:
+				build_history.push(BuildHistory.furniture_move(
+					iid,
+					def_id if def_id != "" else str(expect.get("def_id", "")),
+					Vector2i(int(expect.get("from_cell_x", cell.x)), int(expect.get("from_cell_z", cell.y))),
+					int(expect.get("from_rotation", rot)),
+					cell,
+					rot,
+					NetClient.revision
+				))
+
+
+func _record_online_remove(iid: String) -> void:
+	var expect := _expect_online_op
+	_expect_online_op = {}
+	if expect.is_empty() or str(expect.get("kind", "")) == "history_ignore":
+		return
+	if str(expect.get("kind", "")) != "remove":
+		return
+	if str(expect.get("instance_id", "")) != iid:
+		return
+	build_history.push(BuildHistory.furniture_remove({
+		"instance_id": iid,
+		"def_id": str(expect.get("def_id", "")),
+		"cell_x": int(expect.get("cell_x", 0)),
+		"cell_z": int(expect.get("cell_z", 0)),
+		"rotation": int(expect.get("rotation", 0)),
+	}, NetClient.revision))
 
 
 func _on_collab(info: Dictionary) -> void:
@@ -418,6 +480,8 @@ func _on_left() -> void:
 	for pid in _remotes.keys():
 		_remotes[pid].queue_free()
 	_remotes.clear()
+	build_history.clear()
+	_expect_online_op = {}
 	# Return to solo decorate so Catalog still works after leaving a visit.
 	_enter_offline_mode("Offline demo")
 
@@ -425,6 +489,8 @@ func _on_left() -> void:
 func _on_err(info: Dictionary) -> void:
 	ui.set_status(str(info.get("message", "Error")))
 	GameState.toast(str(info.get("message", "Error")))
+	# Failed ops must not leave a dangling history expectation.
+	_expect_online_op = {}
 
 
 func _on_local_moved(pos: Vector3, yaw: float, moving: bool) -> void:
@@ -433,39 +499,81 @@ func _on_local_moved(pos: Vector3, yaw: float, moving: bool) -> void:
 	NetClient.send_move(pos, yaw, moving)
 
 
-func _on_place_req(def_id: String, cell: Vector2i, rotation: int) -> void:
+func _on_placement_cancelled() -> void:
 	player.placement_locked = false
-	player.capture_mouse()
+	_pending_copy = false
+	_move_from.clear()
+	build_session.clear()
+
+
+func _on_place_req(def_id: String, cell: Vector2i, rotation: int) -> void:
+	# Keep placement_locked while repeat_place continues; unlock when idle.
+	if placement.mode == PlacementController.Mode.IDLE:
+		player.placement_locked = false
+		player.capture_mouse()
+	var as_copy := _pending_copy or placement.mode == PlacementController.Mode.COPY or build_session.mode == BuildSession.Mode.COPY
+	_pending_copy = false
 	if is_online_decorating():
+		_expect_online_op = {
+			"kind": "copy" if as_copy else "place",
+			"def_id": def_id,
+			"cell_x": cell.x,
+			"cell_z": cell.y,
+			"rotation": rotation,
+		}
 		NetClient.place_furniture(def_id, cell, rotation)
 		return
-	_place_furniture_local(def_id, cell, rotation)
+	_place_furniture_local(def_id, cell, rotation, as_copy)
 
 
 func _on_move_req(iid: String, cell: Vector2i, rotation: int) -> void:
 	player.placement_locked = false
 	player.capture_mouse()
+	var from: Dictionary = _move_from.get(iid, {})
 	if is_online_decorating():
+		_expect_online_op = {
+			"kind": "move",
+			"instance_id": iid,
+			"from_cell_x": int(from.get("cell_x", cell.x)),
+			"from_cell_z": int(from.get("cell_z", cell.y)),
+			"from_rotation": int(from.get("rotation", rotation)),
+			"def_id": str(from.get("def_id", "")),
+			"cell_x": cell.x,
+			"cell_z": cell.y,
+			"rotation": rotation,
+		}
 		NetClient.move_furniture(iid, cell, rotation)
+		_move_from.erase(iid)
 		return
-	_move_furniture_local(iid, cell, rotation)
+	_move_furniture_local(iid, cell, rotation, from)
+	_move_from.erase(iid)
 
 
 func _on_remove_req(iid: String) -> void:
 	if is_online_decorating():
+		if _furniture.has(iid):
+			var vis: FurnitureVisual = _furniture[iid]
+			_expect_online_op = {
+				"kind": "remove",
+				"instance_id": iid,
+				"def_id": vis.def_id,
+				"cell_x": vis.cell.x,
+				"cell_z": vis.cell.y,
+				"rotation": vis.rotation_deg,
+			}
 		NetClient.remove_furniture(iid)
 		return
 	_remove_furniture_local(iid)
 
 
-func _place_furniture_local(def_id: String, cell: Vector2i, rotation: int) -> void:
+func _place_furniture_local(def_id: String, cell: Vector2i, rotation: int, as_copy: bool = false) -> String:
 	var occupied := FurnitureValidator.build_occupied_map(_furniture_instance_list())
 	var reason := FurnitureValidator.validate_placement(
 		def_id, cell, rotation, placement.room_min, placement.room_max, occupied
 	)
 	if reason != FurnitureValidator.Reason.OK:
 		GameState.toast(FurnitureValidator.reason_text(reason))
-		return
+		return ""
 	var inst := {
 		"instance_id": "furn_local_%d" % Time.get_ticks_usec(),
 		"def_id": def_id,
@@ -476,13 +584,21 @@ func _place_furniture_local(def_id: String, cell: Vector2i, rotation: int) -> vo
 	_spawn_furniture(inst)
 	placement.set_instances(_furniture)
 	_persist_offline()
-	GameState.toast("Placed " + FurnitureDB.display_name(def_id) + "!")
+	var iid := str(inst["instance_id"])
+	if as_copy:
+		build_history.push(BuildHistory.furniture_copy(iid, def_id, cell, int(inst["rotation"])))
+	else:
+		build_history.push(BuildHistory.furniture_place(iid, def_id, cell, int(inst["rotation"])))
+	GameState.toast(("Copied " if as_copy else "Placed ") + FurnitureDB.display_name(def_id) + "!")
+	return iid
 
 
-func _move_furniture_local(iid: String, cell: Vector2i, rotation: int) -> void:
+func _move_furniture_local(iid: String, cell: Vector2i, rotation: int, from: Dictionary = {}) -> void:
 	if not _furniture.has(iid):
 		return
 	var vis: FurnitureVisual = _furniture[iid]
+	var from_cell := Vector2i(int(from.get("cell_x", vis.cell.x)), int(from.get("cell_z", vis.cell.y)))
+	var from_rot := int(from.get("rotation", vis.rotation_deg))
 	var occupied := FurnitureValidator.build_occupied_map(_furniture_instance_list())
 	var reason := FurnitureValidator.validate_placement(
 		vis.def_id, cell, rotation, placement.room_min, placement.room_max, occupied, iid
@@ -502,35 +618,241 @@ func _move_furniture_local(iid: String, cell: Vector2i, rotation: int) -> void:
 	vis.update_transform(inst, space.grid_origin, HouseSpace.FLOOR_Y)
 	placement.set_instances(_furniture)
 	_persist_offline()
+	build_history.push(BuildHistory.furniture_move(
+		iid, vis.def_id, from_cell, from_rot, cell, int(inst["rotation"])
+	))
 	GameState.toast("Moved " + FurnitureDB.display_name(vis.def_id) + "!")
 
 
 func _remove_furniture_local(iid: String) -> void:
 	if not _furniture.has(iid):
 		return
-	var name := FurnitureDB.display_name((_furniture[iid] as FurnitureVisual).def_id)
+	var vis: FurnitureVisual = _furniture[iid]
+	var snap := {
+		"instance_id": iid,
+		"def_id": vis.def_id,
+		"cell_x": vis.cell.x,
+		"cell_z": vis.cell.y,
+		"rotation": vis.rotation_deg,
+	}
+	var name := FurnitureDB.display_name(vis.def_id)
 	_furniture[iid].queue_free()
 	_furniture.erase(iid)
 	if _selected_id == iid:
 		_selected_id = ""
 	placement.set_instances(_furniture)
 	_persist_offline()
+	build_history.push(BuildHistory.furniture_remove(snap))
 	GameState.toast("Removed " + name)
 
 
 func start_place(def_id: String) -> void:
 	player.placement_locked = true
 	player.release_mouse()
+	_pending_copy = false
+	build_session.select_catalog_item(BuildCatalog.furniture_entry(def_id), "catalog")
 	placement.begin_place(def_id)
+
+
+func start_copy_selected() -> void:
+	if _selected_id == "" or not _furniture.has(_selected_id):
+		GameState.toast("Tap furniture first")
+		return
+	if not placement.can_decorate:
+		GameState.toast(FurnitureValidator.reason_text(FurnitureValidator.Reason.NO_PERMISSION))
+		return
+	var vis: FurnitureVisual = _furniture[_selected_id]
+	player.placement_locked = true
+	player.release_mouse()
+	_pending_copy = true
+	build_session.begin_copy_furniture(_selected_id, BuildCatalog.furniture_entry(vis.def_id), vis.rotation_deg)
+	placement.begin_copy(vis)
+
+
+func start_move_selected() -> void:
+	if _selected_id == "" or not _furniture.has(_selected_id):
+		GameState.toast("Tap furniture first")
+		return
+	var vis: FurnitureVisual = _furniture[_selected_id]
+	_move_from[vis.instance_id] = {
+		"cell_x": vis.cell.x,
+		"cell_z": vis.cell.y,
+		"rotation": vis.rotation_deg,
+		"def_id": vis.def_id,
+	}
+	player.placement_locked = true
+	player.release_mouse()
+	build_session.begin_move_furniture(vis.instance_id, BuildCatalog.furniture_entry(vis.def_id), vis.rotation_deg)
+	placement.begin_move(vis)
+
+
+func remove_selected() -> void:
+	if _selected_id == "":
+		GameState.toast("Tap furniture first")
+		return
+	var iid := _selected_id
+	_selected_id = ""
+	_on_remove_req(iid)
 
 
 func cancel_placement() -> void:
 	placement.cancel()
 	player.placement_locked = false
 	player.capture_mouse()
+	build_session.clear()
+
+
+func undo_build() -> void:
+	if not build_history.can_undo():
+		GameState.toast("Nothing to undo")
+		return
+	if not placement.can_decorate:
+		GameState.toast(FurnitureValidator.reason_text(FurnitureValidator.Reason.NO_PERMISSION))
+		return
+	var e := build_history.pop_undo()
+	if not _apply_history_entry(e, true):
+		build_history.restore_failed_undo(e)
+
+
+func redo_build() -> void:
+	if not build_history.can_redo():
+		GameState.toast("Nothing to redo")
+		return
+	if not placement.can_decorate:
+		GameState.toast(FurnitureValidator.reason_text(FurnitureValidator.Reason.NO_PERMISSION))
+		return
+	var e := build_history.pop_redo()
+	if not _apply_history_entry(e, false):
+		build_history.restore_failed_redo(e)
+
+
+func _apply_history_entry(e: Dictionary, undoing: bool) -> bool:
+	## undoing=true means reverse the recorded op; false reapplies it.
+	if e.is_empty():
+		return false
+	var op := int(e.get("op", -1))
+	match op:
+		BuildHistory.Op.PLACE_FURNITURE, BuildHistory.Op.COPY_FURNITURE:
+			if undoing:
+				return _history_remove(str(e.get("instance_id", "")), e)
+			return _history_place(e)
+		BuildHistory.Op.REMOVE_FURNITURE:
+			if undoing:
+				return _history_place(e)
+			return _history_remove(str(e.get("instance_id", "")), e)
+		BuildHistory.Op.MOVE_FURNITURE, BuildHistory.Op.ROTATE_FURNITURE:
+			if undoing:
+				return _history_move_to(
+					str(e.get("instance_id", "")),
+					Vector2i(int(e.get("from_cell_x", 0)), int(e.get("from_cell_z", 0))),
+					int(e.get("from_rotation", 0)),
+					e
+				)
+			return _history_move_to(
+				str(e.get("instance_id", "")),
+				Vector2i(int(e.get("cell_x", 0)), int(e.get("cell_z", 0))),
+				int(e.get("rotation", 0)),
+				e
+			)
+		_:
+			GameState.toast("Can't undo that here")
+			return false
+
+
+func _history_place(e: Dictionary) -> bool:
+	var def_id := str(e.get("def_id", ""))
+	var cell := Vector2i(int(e.get("cell_x", 0)), int(e.get("cell_z", 0)))
+	var rot := int(e.get("rotation", 0))
+	var iid := str(e.get("instance_id", ""))
+	if is_online_decorating():
+		_expect_online_op = {"kind": "history_ignore"}
+		# Ask the authority to restore the same instance_id (tombstone-validated).
+		NetClient.place_furniture(def_id, cell, rot, iid)
+		GameState.toast("Redo sent")
+		return true
+	var occupied := FurnitureValidator.build_occupied_map(_furniture_instance_list())
+	var reason := FurnitureValidator.validate_placement(
+		def_id, cell, rot, placement.room_min, placement.room_max, occupied
+	)
+	if reason != FurnitureValidator.Reason.OK:
+		GameState.toast(FurnitureValidator.reason_text(reason))
+		return false
+	if iid == "" or _furniture.has(iid):
+		iid = "furn_local_%d" % Time.get_ticks_usec()
+	var inst := {
+		"instance_id": iid,
+		"def_id": def_id,
+		"cell_x": cell.x,
+		"cell_z": cell.y,
+		"rotation": FurnitureGrid.normalize_rotation(rot),
+	}
+	_spawn_furniture(inst)
+	placement.set_instances(_furniture)
+	_persist_offline()
+	return true
+
+
+func _history_remove(iid: String, e: Dictionary) -> bool:
+	if is_online_decorating():
+		if iid == "" or not _furniture.has(iid):
+			GameState.toast("That piece changed — can't undo")
+			return false
+		_expect_online_op = {"kind": "history_ignore"}
+		NetClient.remove_furniture(iid)
+		return true
+	if not _furniture.has(iid):
+		GameState.toast("That piece changed — can't undo")
+		return false
+	_furniture[iid].queue_free()
+	_furniture.erase(iid)
+	if _selected_id == iid:
+		_selected_id = ""
+	placement.set_instances(_furniture)
+	_persist_offline()
+	return true
+
+
+func _history_move_to(iid: String, cell: Vector2i, rot: int, e: Dictionary) -> bool:
+	if is_online_decorating():
+		if iid == "" or not _furniture.has(iid):
+			GameState.toast("That piece changed — can't undo")
+			return false
+		_expect_online_op = {"kind": "history_ignore"}
+		NetClient.move_furniture(iid, cell, rot)
+		return true
+	if not _furniture.has(iid):
+		GameState.toast("That piece changed — can't undo")
+		return false
+	var vis: FurnitureVisual = _furniture[iid]
+	var occupied := FurnitureValidator.build_occupied_map(_furniture_instance_list())
+	var reason := FurnitureValidator.validate_placement(
+		vis.def_id, cell, rot, placement.room_min, placement.room_max, occupied, iid
+	)
+	if reason != FurnitureValidator.Reason.OK:
+		GameState.toast(FurnitureValidator.reason_text(reason))
+		return false
+	var inst := {
+		"instance_id": iid,
+		"def_id": vis.def_id,
+		"cell_x": cell.x,
+		"cell_z": cell.y,
+		"rotation": FurnitureGrid.normalize_rotation(rot),
+	}
+	vis.update_transform(inst, space.grid_origin, HouseSpace.FLOOR_Y)
+	placement.set_instances(_furniture)
+	_persist_offline()
+	return true
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_undo") or (event is InputEventKey and event.pressed and event.ctrl_pressed and event.physical_keycode == KEY_Z and not event.shift_pressed):
+		undo_build()
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.pressed and event.ctrl_pressed and (event.physical_keycode == KEY_Y or (event.physical_keycode == KEY_Z and event.shift_pressed)):
+		redo_build()
+		get_viewport().set_input_as_handled()
+		return
 	if placement.mode != PlacementController.Mode.IDLE:
 		if event.is_action_pressed("pause_menu"):
 			cancel_placement()
@@ -548,13 +870,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 			_try_select()
 		if event.is_action_pressed("interact") and _selected_id != "":
-			if _furniture.has(_selected_id):
-				player.placement_locked = true
-				player.release_mouse()
-				placement.begin_move(_furniture[_selected_id])
+			start_move_selected()
 		if event is InputEventKey and event.pressed and event.physical_keycode == KEY_X and _selected_id != "":
-			_on_remove_req(_selected_id)
-			_selected_id = ""
+			remove_selected()
+		if event is InputEventKey and event.pressed and event.physical_keycode == KEY_C and _selected_id != "":
+			start_copy_selected()
 
 
 func _try_select() -> void:

@@ -31,6 +31,7 @@ var top_bar: MarginContainer
 var top_row: HBoxContainer
 var bag_btn: Button
 var craft_top_btn: Button
+var build_btn: Button
 var menu_btn: Button
 var fly_btn: ActionButton
 var fly_up_btn: ActionButton
@@ -39,12 +40,15 @@ var _fly_cluster: Control
 var mode_select_panel: Control
 var mining_bar: ProgressBar
 var hint_label: Label
+var build_catalog: BuildCatalogPanel
+var catalog_panel: PanelContainer
 
 var _toast_timer := 0.0
 var _font: Font
 var _root: Control
 var _theme: Theme
 var _pending_new_world := false
+var _catalog_open := false
 
 const COL_PANEL := CozyTouchTheme.COL_PANEL
 const COL_INK := CozyTouchTheme.COL_INK
@@ -189,6 +193,12 @@ func _build_ui() -> void:
 	craft_top_btn.pressed.connect(toggle_craft)
 	top_row.add_child(craft_top_btn)
 
+	build_btn = Button.new()
+	build_btn.name = "BuildButton"
+	_icon_chip(build_btn, "res://assets/ui/icons/icon_place.png", COL_GREEN, "Build", Vector2(56, 52))
+	build_btn.pressed.connect(toggle_build_catalog)
+	top_row.add_child(build_btn)
+
 	menu_btn = Button.new()
 	menu_btn.name = "MenuButton"
 	_icon_chip(menu_btn, "res://assets/ui/icons/icon_menu.png", COL_ACCENT, "Menu", Vector2(56, 52))
@@ -196,16 +206,17 @@ func _build_ui() -> void:
 	top_row.add_child(menu_btn)
 
 	toast_label = Label.new()
+	toast_label.name = "Toast"
 	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	toast_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	toast_label.offset_top = 70
-	toast_label.offset_left = -220
-	toast_label.offset_right = 220
-	toast_label.offset_bottom = 110
+	toast_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	toast_label.offset_top = -150
+	toast_label.offset_bottom = -110
+	toast_label.offset_left = -260
+	toast_label.offset_right = 260
 	toast_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if _font:
 		toast_label.add_theme_font_override("font", _font)
-		toast_label.add_theme_font_size_override("font_size", 28)
+		toast_label.add_theme_font_size_override("font_size", 24)
 	toast_label.add_theme_color_override("font_color", COL_INK)
 	_root.add_child(toast_label)
 
@@ -321,10 +332,29 @@ func _build_ui() -> void:
 	_theme_button(no, Vector2(120, 52), COL_GREEN)
 	no.pressed.connect(confirm_reset_no)
 	row.add_child(no)
+	build_catalog = BuildCatalogPanel.new()
+	build_catalog.name = "BuildCatalog"
+	build_catalog.set_anchors_preset(Control.PRESET_CENTER)
+	build_catalog.offset_left = -320
+	build_catalog.offset_top = -310
+	build_catalog.offset_right = 320
+	build_catalog.offset_bottom = 310
+	build_catalog.closed_requested.connect(func(): panels.close("catalog"))
+	build_catalog.item_selected.connect(_on_build_item_selected)
+	build_catalog.item_drag_started.connect(_on_build_drag_started)
+	build_catalog.item_drag_ended.connect(_on_build_drag_ended)
+	build_catalog.tool_pressed.connect(_on_build_tool)
+	_root.add_child(build_catalog)
+	catalog_panel = build_catalog
+	# Keep toast under the catalog so "Back to start!" never covers the Build header.
+	if toast_label:
+		_root.move_child(toast_label, -1)
+
 	panels.register("inventory", inventory_panel)
 	panels.register("craft", craft_panel)
 	panels.register("menu", menu_panel)
 	panels.register("confirm", confirm_panel)
+	panels.register("catalog", catalog_panel)
 	_build_fly_controls()
 	_build_mining_bar()
 	_build_mode_select()
@@ -381,7 +411,7 @@ func _layout_top_bar() -> void:
 	top_bar.add_theme_constant_override("margin_right", 12)
 	top_bar.add_theme_constant_override("margin_bottom", 4)
 	top_bar.offset_bottom = top + chip + 16.0
-	for b in [mode_btn, bag_btn, craft_top_btn, menu_btn]:
+	for b in [mode_btn, bag_btn, craft_top_btn, build_btn, menu_btn]:
 		if b:
 			b.custom_minimum_size = Vector2(chip, chip)
 			b.add_theme_constant_override("icon_max_width", int(chip * 0.62))
@@ -593,33 +623,176 @@ func _sync_panel_flags() -> void:
 	_inventory_open = panels.is_open("inventory")
 	_craft_open = panels.is_open("craft")
 	_menu_open = panels.is_open("menu")
+	_catalog_open = panels.is_open("catalog")
 
 
 func _on_panel_opened(id: String) -> void:
 	_sync_panel_flags()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_layout_toast_for_panels()
+	_layout_hint_for_panels()
 	if id == "inventory":
 		_refresh_inventory_panel()
 	elif id == "craft":
 		_build_craft_list()
+	elif id == "catalog":
+		_refresh_build_catalog()
 
 
 func _on_panel_closed(_id: String) -> void:
 	_sync_panel_flags()
+	_layout_toast_for_panels()
+	_layout_hint_for_panels()
 
 
 func _on_panels_all_closed() -> void:
 	_sync_panel_flags()
+	_layout_toast_for_panels()
+	_layout_hint_for_panels()
 	_restore_play_mouse()
 
 
+func _layout_toast_for_panels() -> void:
+	## Keep toast off the centered Build catalog (header and Close footer).
+	if toast_label == null:
+		return
+	if panels.is_open("catalog"):
+		# Sit under the top chips, above the catalog title — never over Build/Close.
+		toast_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		toast_label.offset_top = 64
+		toast_label.offset_bottom = 104
+	else:
+		toast_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+		toast_label.offset_top = -150
+		toast_label.offset_bottom = -110
+	toast_label.offset_left = -260
+	toast_label.offset_right = 260
+
+
+func _layout_hint_for_panels() -> void:
+	## Survival meadow hint sits near the catalog title — hide while Build is open.
+	if hint_label == null:
+		return
+	if panels.is_open("catalog"):
+		hint_label.visible = false
+	else:
+		hint_label.visible = GameState.is_survival()
+
+
 func _restore_play_mouse() -> void:
-	## Return to captured look after closing Bag/Craft/Menu (desktop place/break need it).
+	## Return to captured look after closing Bag/Craft/Menu/Build (desktop place/break need it).
 	if panels.is_open():
 		return
 	if touch_layer and touch_layer.visible:
 		return
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+func toggle_build_catalog() -> void:
+	if panels.toggle("catalog"):
+		_refresh_build_catalog()
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _refresh_build_catalog() -> void:
+	if build_catalog == null or player == null:
+		return
+	build_catalog.configure("meadow", player.inventory, player.build_session, player.build_history)
+	if player.build_session and not player.build_session.entry.is_empty():
+		build_catalog.set_selected_entry(player.build_session.entry)
+	else:
+		build_catalog.refresh()
+
+
+func _on_build_item_selected(entry: Dictionary) -> void:
+	## Selecting a catalog card must not place a block.
+	var id := str(entry.get("id", ""))
+	if str(entry.get("kind", "")) != "block":
+		panels.close("catalog")
+		return
+	if player:
+		player.select_build_item(id)
+	if build_catalog:
+		build_catalog.set_selected_entry(entry)
+	panels.close("catalog")
+	refresh_hotbar()
+
+
+func _on_build_drag_started(entry: Dictionary, pointer_id: int) -> void:
+	if player == null:
+		return
+	var id := str(entry.get("id", ""))
+	if str(entry.get("kind", "")) != "block":
+		return
+	player.select_build_item(id)
+	player.build_session.begin_drag(pointer_id)
+	panels.close("catalog")
+
+
+func _on_build_drag_ended(_entry: Dictionary, screen_pos: Vector2, over_ui: bool) -> void:
+	if player == null:
+		return
+	player.build_session.end_drag()
+	if over_ui:
+		player.clear_build_selection()
+		return
+	# Aim via temporary camera ray from drop point, then place once.
+	var cam := player.camera
+	if cam == null:
+		return
+	var from := cam.project_ray_origin(screen_pos)
+	var dir := cam.project_ray_normal(screen_pos)
+	var to := from + dir * PlayerController.REACH
+	var q := PhysicsRayQueryParameters3D.create(from, to)
+	q.collision_mask = PlayerController.RAY_MASK_WORLD
+	var hit := cam.get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		player.clear_build_selection()
+		return
+	# Temporarily point the player's look so get_place_pos works, then place.
+	var before_yaw := player.look_yaw
+	var before_pitch := player.look_pitch
+	var hit_pos: Vector3 = hit.position
+	var aim := (hit_pos - cam.global_position).normalized()
+	player.look_yaw = atan2(-aim.x, -aim.z)
+	player.look_pitch = asin(clampf(aim.y, -0.99, 0.99))
+	player.head.rotation.y = player.look_yaw
+	player.camera.rotation.x = player.look_pitch
+	await get_tree().physics_frame
+	player.try_place()
+	player.look_yaw = before_yaw
+	player.look_pitch = before_pitch
+	player.head.rotation.y = player.look_yaw
+	player.camera.rotation.x = player.look_pitch
+	refresh_hotbar()
+	if build_catalog:
+		build_catalog.refresh()
+
+
+func _on_build_tool(tool_id: String) -> void:
+	if player == null:
+		return
+	match tool_id:
+		"rotate":
+			GameState.toast("Blocks don't rotate")
+		"move":
+			panels.close("catalog")
+			player.begin_move_targeted_block()
+		"copy":
+			panels.close("catalog")
+			player.begin_copy_targeted_block()
+		"remove":
+			panels.close("catalog")
+			player.try_break()
+		"undo":
+			player.undo_build()
+		"redo":
+			player.redo_build()
+		"cancel":
+			player.clear_build_selection()
+			panels.close("catalog")
+	_refresh_build_catalog()
+	refresh_hotbar()
 
 
 func _refresh_inventory_panel() -> void:
@@ -1113,6 +1286,8 @@ func save_game() -> void:
 
 func load_game() -> void:
 	if player and SaveGame.load_world(player.world, player.inventory):
+		player.clear_build_selection()
+		player.build_history.clear()
 		player.reset_to_spawn()
 		refresh_hotbar()
 		GameState.toast("Loaded!")
