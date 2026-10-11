@@ -32,6 +32,10 @@ func is_open(id: String = "") -> bool:
 	return _active == id
 
 
+func any_open() -> bool:
+	return _active != ""
+
+
 func open(id: String) -> void:
 	if not _panels.has(id):
 		return

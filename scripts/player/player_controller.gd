@@ -1,6 +1,6 @@
 extends CharacterBody3D
 class_name PlayerController
-## First-person player with desktop + touch movement and creative flight.
+## First-person player with desktop + touch movement, creative flight, Survival mining.
 
 const SPEED := 5.5
 const FLY_SPEED := 6.5
@@ -16,8 +16,8 @@ const EYE_HEIGHT := 1.62
 @export var ui_path: NodePath
 @export var touch_look_sensitivity: float = 0.0045
 
-var inventory := Inventory.new()
-var crafting := CraftingSystem.new()
+var inventory: Inventory
+var crafting: CraftingSystem
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var touch_move := Vector2.ZERO
 var touch_look := Vector2.ZERO
@@ -26,6 +26,10 @@ var look_yaw := 0.0
 var look_pitch := 0.0
 var _break_held := false
 var _place_held := false
+var _mine_target := Vector3i(-9999, -9999, -9999)
+var _mine_progress := 0.0
+var _mine_needed := 0.0
+var _touch_mining := false
 
 @onready var camera: Camera3D = $Head/Camera3D
 @onready var head: Node3D = $Head
@@ -38,6 +42,10 @@ var world: VoxelWorld
 var ui: CanvasLayer
 
 func _ready() -> void:
+	if inventory == null:
+		inventory = Inventory.new()
+	if crafting == null:
+		crafting = CraftingSystem.new()
 	world = get_node(world_path)
 	ui = get_node(ui_path)
 	_apply_body_proportions()
@@ -60,6 +68,8 @@ func _ready() -> void:
 		GameState.flight_changed.connect(_on_flight_changed)
 	if not GameState.creative_changed.is_connected(_on_creative_changed):
 		GameState.creative_changed.connect(_on_creative_changed)
+	if not GameState.mode_changed.is_connected(_on_mode_changed):
+		GameState.mode_changed.connect(_on_mode_changed)
 
 
 func _apply_body_proportions() -> void:
@@ -105,6 +115,13 @@ func _on_flight_changed(_enabled: bool) -> void:
 func _on_creative_changed(enabled: bool) -> void:
 	if not enabled and GameState.flying:
 		GameState.set_flying(false)
+	cancel_mining()
+
+
+func _on_mode_changed(_mode: int) -> void:
+	cancel_mining()
+	if GameState.is_survival() and GameState.flying:
+		GameState.set_flying(false)
 
 
 func _input(event: InputEvent) -> void:
@@ -112,7 +129,13 @@ func _input(event: InputEvent) -> void:
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		return
 	if event.is_action_pressed("break_block"):
-		try_break()
+		_break_held = true
+		if GameState.is_creative():
+			try_break()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_released("break_block"):
+		_break_held = false
+		cancel_mining()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("place_block"):
 		try_place()
@@ -135,13 +158,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		GameState.toggle_creative()
 	if event.is_action_pressed("toggle_flight"):
 		GameState.toggle_flying()
-	for i in 8:
+	for i in Inventory.HOTBAR_SIZE:
 		if event.is_action_pressed("hotbar_%d" % (i + 1)):
 			inventory.select(i)
+			cancel_mining()
 	# Visible-mouse fallback (e.g. after UI) — still allow place/break off-HUD.
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		if event.is_action_pressed("break_block"):
-			try_break()
+			_break_held = true
+			if GameState.is_creative():
+				try_break()
+		if event.is_action_released("break_block"):
+			_break_held = false
+			cancel_mining()
 		if event.is_action_pressed("place_block"):
 			try_place()
 
@@ -157,7 +186,7 @@ func _physics_process(delta: float) -> void:
 	head.rotation.y = look_yaw
 	camera.rotation.x = look_pitch
 
-	var flying := GameState.flying and GameState.creative_mode
+	var flying := GameState.flying and GameState.is_creative()
 	if flying:
 		_physics_fly(delta)
 	else:
@@ -166,6 +195,9 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_clamp_to_boundary()
 	_update_targeting()
+	_update_mining(delta)
+	if GameState.is_survival():
+		world.collect_nearby_drops(inventory, global_position + Vector3(0, 1.0, 0))
 
 
 func _physics_walk(delta: float) -> void:
@@ -223,6 +255,7 @@ func _clamp_to_boundary() -> void:
 func reset_to_spawn() -> void:
 	global_position = world.spawn_position()
 	velocity = Vector3.ZERO
+	cancel_mining()
 	GameState.toast("Back to start!")
 
 
@@ -244,6 +277,7 @@ func _update_targeting() -> void:
 	if world.get_block(target.x, target.y, target.z) != 0:
 		highlight.visible = true
 		highlight.global_position = Vector3(target) + Vector3(0.5, 0.5, 0.5)
+		_tint_highlight_for_mining()
 	var place_pos := Vector3i(
 		floori((hit_pos + normal * 0.01).x),
 		floori((hit_pos + normal * 0.01).y),
@@ -252,6 +286,17 @@ func _update_targeting() -> void:
 	if world.can_place_at(place_pos.x, place_pos.y, place_pos.z, player_aabb()):
 		place_preview.visible = true
 		place_preview.global_position = Vector3(place_pos) + Vector3(0.5, 0.5, 0.5)
+
+
+func _tint_highlight_for_mining() -> void:
+	var mat := highlight.material_override as StandardMaterial3D
+	if mat == null:
+		return
+	if GameState.is_survival() and _mine_needed > 0.0 and _mine_progress > 0.0:
+		var t := clampf(_mine_progress / _mine_needed, 0.0, 1.0)
+		mat.albedo_color = Color(1.0, 1.0 - t * 0.7, 0.2, 0.25 + t * 0.45)
+	else:
+		mat.albedo_color = Color(1, 1, 1, 0.25)
 
 
 func get_target_block() -> Vector3i:
@@ -275,7 +320,86 @@ func get_place_pos() -> Vector3i:
 	)
 
 
+func cancel_mining() -> void:
+	_mine_target = Vector3i(-9999, -9999, -9999)
+	_mine_progress = 0.0
+	_mine_needed = 0.0
+	_touch_mining = false
+	GameState.notify_mining_progress(-1.0)
+
+
+func mining_fraction() -> float:
+	if _mine_needed <= 0.0:
+		return 0.0
+	return clampf(_mine_progress / _mine_needed, 0.0, 1.0)
+
+
+func _update_mining(delta: float) -> void:
+	if GameState.is_creative():
+		# Hold-to-repeat creative break (desktop).
+		if _break_held and Input.is_action_pressed("break_block"):
+			# Already broke on press; optional continuous creative break:
+			pass
+		return
+	# Cancel if UI panels block interaction
+	if ui != null and ui.get("panels") != null:
+		var panels = ui.panels
+		if panels != null and panels.has_method("any_open") and panels.any_open():
+			cancel_mining()
+			return
+	var holding := _break_held or _touch_mining or Input.is_action_pressed("break_block")
+	if not holding:
+		if _mine_progress > 0.0:
+			cancel_mining()
+		return
+	var t := get_target_block()
+	if t.x == -9999:
+		cancel_mining()
+		return
+	var block_id := world.get_block(t.x, t.y, t.z)
+	if block_id == 0 or not BlockDB.is_breakable(block_id):
+		cancel_mining()
+		return
+	if t != _mine_target:
+		_mine_target = t
+		_mine_progress = 0.0
+		_mine_needed = MiningRules.break_seconds(block_id, inventory.selected_item())
+	# Tool switch mid-mine: recompute remaining using new speed
+	var needed_now := MiningRules.break_seconds(block_id, inventory.selected_item())
+	if not is_equal_approx(needed_now, _mine_needed) and _mine_needed > 0.0:
+		var frac := _mine_progress / _mine_needed
+		_mine_needed = needed_now
+		_mine_progress = frac * _mine_needed
+	_mine_progress += delta
+	GameState.notify_mining_progress(mining_fraction())
+	if _mine_progress >= _mine_needed:
+		_finish_survival_break(t)
+
+
+func _finish_survival_break(t: Vector3i) -> void:
+	var held := inventory.selected_item()
+	var drop := world.break_block_survival(t.x, t.y, t.z, held)
+	if drop != "":
+		var at := Vector3(t) + Vector3(0.5, 0.5, 0.5)
+		world.spawn_drop(drop, 1, at)
+		GameState.toast("Got " + BlockDB.display_name(drop))
+	else:
+		GameState.toast("Need the right tool")
+	if not MiningRules.tool_info(held).is_empty():
+		inventory.damage_selected_tool(1)
+	_play_sfx("res://assets/audio/rpg/chop.ogg")
+	cancel_mining()
+	# Keep holding for continuous mining of the next block
+	if _break_held or _touch_mining:
+		_break_held = _break_held
+		_touch_mining = _touch_mining
+
+
 func try_break() -> void:
+	## Instant Creative break (also used by tests). Survival uses timed mining.
+	if GameState.is_survival():
+		_break_held = true
+		return
 	var t := get_target_block()
 	if t.x == -9999:
 		return
@@ -287,6 +411,7 @@ func try_break() -> void:
 
 
 func try_place() -> void:
+	cancel_mining()
 	var item := inventory.selected_item()
 	if item == "" or not BlockDB.is_placeable(item):
 		return
@@ -297,17 +422,45 @@ func try_place() -> void:
 		return
 	if not inventory.consume_selected(1):
 		return
-	world.set_block(p.x, p.y, p.z, BlockDB.get_id(item), true)
+	world.set_block(p.x, p.y, p.z, BlockDB.place_block_id(item), true)
 	_play_sfx("res://assets/audio/impact/impactGeneric_light_000.ogg")
 
 
+func near_crafting_table() -> bool:
+	return world != null and world.has_crafting_table_near(global_position)
+
+
 func craft(recipe_id: String) -> void:
-	if crafting.craft(recipe_id, inventory):
+	cancel_mining()
+	if crafting.craft(recipe_id, inventory, near_crafting_table()):
 		GameState.toast("Crafted!")
 		_play_sfx("res://assets/audio/interface/confirmation_001.ogg")
 	else:
-		GameState.toast("Need more items")
+		var recipe := crafting.find_recipe(recipe_id)
+		if str(recipe.get("station", "")) == "crafting_table" and not near_crafting_table() and GameState.is_survival():
+			GameState.toast("Place a Crafting Table nearby!")
+		else:
+			GameState.toast("Need more items")
 		_play_sfx("res://assets/audio/interface/error_001.ogg")
+
+
+func prepare_for_mode(mode: int) -> void:
+	## Called after New World selection.
+	GameState.set_game_mode(mode)
+	cancel_mining()
+	if mode == GameState.Mode.SURVIVAL:
+		inventory.clear()
+		GameState.set_flying(false)
+	else:
+		inventory.clear()
+		inventory._seed_defaults()
+	if world:
+		world.reset_world()
+		var parent := world.get_parent()
+		if parent:
+			var dresser := MeadowDresser.new()
+			dresser.dress(parent)
+		reset_to_spawn()
 
 
 func _play_sfx(path: String) -> void:
@@ -335,14 +488,22 @@ func set_touch_fly_vertical(v: float) -> void:
 
 
 func touch_jump() -> void:
-	if GameState.flying and GameState.creative_mode:
+	if GameState.flying and GameState.is_creative():
 		return
 	if is_on_floor():
 		velocity.y = JUMP_VELOCITY
 
 
 func touch_break() -> void:
-	try_break()
+	if GameState.is_creative():
+		try_break()
+	else:
+		_touch_mining = true
+
+
+func touch_break_released() -> void:
+	_touch_mining = false
+	cancel_mining()
 
 
 func touch_place() -> void:

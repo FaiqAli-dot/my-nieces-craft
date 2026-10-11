@@ -1,6 +1,6 @@
-# CozyBlocks — Phase 2
+# CozyBlocks — Phase 2 + S2 Survival
 
-Kid-friendly 3D voxel sandbox (Godot 4.3 / GDScript) plus a third-person house decorating mode with invite-based multiplayer. Phase 1 meadow building/crafting is preserved; Phase 2 adds private houses, furniture, and a small authoritative WebSocket server.
+Kid-friendly 3D voxel sandbox (Godot 4.3 / GDScript) plus a third-person house decorating mode with invite-based multiplayer. Phase 1 meadow building/crafting is preserved; Phase 2 adds private houses, furniture, and a small authoritative WebSocket server. **S2** adds a real **Creative / Survival** choice and a playable wood→stone Survival loop (see `docs/S2_SURVIVAL.md`).
 
 ## Requirements
 
@@ -70,6 +70,10 @@ COZY_MP_TEST=1 COZY_MP_TEST_QUIT=1 godot --headless --path . res://scenes/server
 # Meadow smoke
 COZY_SMOKE=1 COZY_SMOKE_QUIT=1 xvfb-run -a godot --path . \
   --rendering-method gl_compatibility --rendering-driver opengl3
+
+# S2 Survival UI stills
+COZY_S2_SHOTS=1 COZY_S2_SHOTS_QUIT=1 COZY_FORCE_TOUCH=1 xvfb-run -a godot --path . \
+  --rendering-method gl_compatibility --rendering-driver opengl3
 ```
 
 ## Controls
@@ -81,14 +85,14 @@ COZY_SMOKE=1 COZY_SMOKE_QUIT=1 xvfb-run -a godot --path . \
 | Move | WASD / arrows | MOVE stick |
 | Look | Mouse | LOOK pad |
 | Jump | Space | Jump |
-| Break | Left click | Break |
+| Break | Hold left click (timed in Survival) | Hold Break |
 | Place | Right click | Place |
-| Hotbar | 1–8 or tap slots | Tap hotbar |
+| Hotbar | 1–9 or tap slots | Tap hotbar |
 | Inventory | I / Tab | Bag |
 | Craft | C | Craft |
 | My House | Menu → My House | Menu → My House |
 | Creative flight | F toggle; Space up; Ctrl/Shift down | Fly/Land beside Jump (right); Up/Down while flying |
-| Creative mode | G or top-bar button | Top-bar Creative chip |
+| Game mode | New World screen (Creative / Survival) | Same; HUD shows current mode |
 
 Only one of Bag / Craft / Menu is open at a time (opening one closes the others).
 

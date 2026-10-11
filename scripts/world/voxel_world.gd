@@ -1,6 +1,6 @@
 extends Node3D
 class_name VoxelWorld
-## Finite chunked voxel world for the Phase 1 sandbox.
+## Finite chunked voxel world for the Phase 1 sandbox + S2 Survival resources.
 
 signal world_reset
 signal block_changed(pos: Vector3i, id: int)
@@ -8,12 +8,14 @@ signal block_changed(pos: Vector3i, id: int)
 const WORLD_CHUNKS := Vector3i(4, 2, 4) # 64 x 32 x 64 blocks
 const GROUND_Y := 4
 const SPAWN_BLOCK := Vector3i(32, GROUND_Y + 1, 32)
+const MAX_DROPS := 80
 
 var chunks: Dictionary = {} # Vector3i -> VoxelChunk
 var boundary_min := Vector3(1, 0, 1)
 var boundary_max := Vector3(WORLD_CHUNKS.x * VoxelChunk.SIZE - 2, WORLD_CHUNKS.y * VoxelChunk.SIZE - 1, WORLD_CHUNKS.z * VoxelChunk.SIZE - 2)
 
 var chunk_root: Node3D
+var drop_root: Node3D
 
 
 func _ready() -> void:
@@ -22,6 +24,11 @@ func _ready() -> void:
 		chunk_root = Node3D.new()
 		chunk_root.name = "Chunks"
 		add_child(chunk_root)
+	drop_root = get_node_or_null("Drops") as Node3D
+	if drop_root == null:
+		drop_root = Node3D.new()
+		drop_root.name = "Drops"
+		add_child(drop_root)
 	generate_flat_world()
 
 
@@ -142,6 +149,9 @@ func generate_flat_world() -> void:
 					id = dirt_id
 				set_block(x, y, z, id, false)
 	_dress_meadow()
+	_plant_voxel_trees()
+	_place_stone_outcrop()
+	clear_drops()
 	# Mark all dirty and rebuild once
 	for key in chunks.keys():
 		chunks[key].dirty = true
@@ -305,12 +315,164 @@ func can_place_at(wx: int, wy: int, wz: int, player_aabb: AABB) -> bool:
 
 
 func break_block(wx: int, wy: int, wz: int) -> String:
+	## Creative / legacy helper: always awards the normal drop into caller inventory.
 	var id := get_block(wx, wy, wz)
 	if id == 0 or not BlockDB.is_breakable(id):
 		return ""
 	var drop := BlockDB.get_drop(id)
 	set_block(wx, wy, wz, 0, true)
 	return drop
+
+
+func break_block_survival(wx: int, wy: int, wz: int, held_item: String) -> String:
+	## Removes the block; returns drop item id (may be empty if wrong tool).
+	var id := get_block(wx, wy, wz)
+	if id == 0 or not BlockDB.is_breakable(id):
+		return ""
+	var drop := MiningRules.drop_for_break(id, held_item)
+	set_block(wx, wy, wz, 0, true)
+	return drop
+
+
+func spawn_drop(item: String, count: int, at: Vector3) -> void:
+	if item == "" or count <= 0:
+		return
+	if drop_root == null:
+		drop_root = Node3D.new()
+		drop_root.name = "Drops"
+		add_child(drop_root)
+	_enforce_drop_cap()
+	var d := WorldDrop.new()
+	d.setup(item, count, at + Vector3(0.0, 0.2, 0.0))
+	drop_root.add_child(d)
+	d.global_position = at + Vector3(0.0, 0.2, 0.0)
+
+
+func clear_drops() -> void:
+	if drop_root == null:
+		return
+	for c in drop_root.get_children():
+		c.queue_free()
+
+
+func _enforce_drop_cap() -> void:
+	if drop_root == null:
+		return
+	var kids := drop_root.get_children()
+	var overflow := kids.size() - MAX_DROPS + 1
+	if overflow <= 0:
+		return
+	for i in overflow:
+		if i < kids.size():
+			kids[i].queue_free()
+
+
+func collect_nearby_drops(inventory: Inventory, collector_pos: Vector3, radius: float = 1.6) -> int:
+	if drop_root == null or inventory == null:
+		return 0
+	var collected := 0
+	for c in drop_root.get_children():
+		var drop := c as WorldDrop
+		if drop == null:
+			continue
+		if collector_pos.distance_to(drop.global_position) <= radius:
+			var before := drop.count
+			if drop.try_collect(inventory):
+				collected += before - maxi(drop.count, 0)
+	return collected
+
+
+func has_crafting_table_near(pos: Vector3, radius: float = 3.5) -> bool:
+	var table_id := BlockDB.get_id("crafting_table")
+	if table_id == 0:
+		return false
+	var cx := floori(pos.x)
+	var cy := floori(pos.y)
+	var cz := floori(pos.z)
+	var r := ceili(radius)
+	for dy in range(-r, r + 1):
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if get_block(cx + dx, cy + dy, cz + dz) == table_id:
+					return true
+	return false
+
+
+func serialize_drops() -> Array:
+	var out: Array = []
+	if drop_root == null:
+		return out
+	for c in drop_root.get_children():
+		var drop := c as WorldDrop
+		if drop:
+			out.append(drop.to_dict())
+	return out
+
+
+func deserialize_drops(data) -> void:
+	clear_drops()
+	if typeof(data) != TYPE_ARRAY:
+		return
+	if drop_root == null:
+		drop_root = Node3D.new()
+		drop_root.name = "Drops"
+		add_child(drop_root)
+	for entry in data:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var d := WorldDrop.from_dict(entry)
+		drop_root.add_child(d)
+
+
+func _plant_voxel_trees() -> void:
+	## Harvestable voxel oaks near spawn (decorative GLB trees remain separate).
+	var spots: Array[Vector2i] = [
+		Vector2i(26, 30),
+		Vector2i(38, 26),
+		Vector2i(30, 40),
+		Vector2i(42, 38),
+		Vector2i(20, 34),
+		Vector2i(48, 32),
+		Vector2i(24, 44),
+		Vector2i(36, 20),
+	]
+	for s in spots:
+		_grow_oak(s.x, s.y)
+
+
+func _grow_oak(cx: int, cz: int) -> void:
+	var wood_id := BlockDB.get_id("wood")
+	var leaves_id := BlockDB.get_id("leaves")
+	var trunk_h := 4
+	for y in range(1, trunk_h + 1):
+		set_block(cx, GROUND_Y + y, cz, wood_id, false)
+	var top := GROUND_Y + trunk_h
+	for dy in range(-1, 2):
+		for dx in range(-2, 3):
+			for dz in range(-2, 3):
+				if absi(dx) == 2 and absi(dz) == 2:
+					continue
+				var lx := cx + dx
+				var ly := top + dy
+				var lz := cz + dz
+				if get_block(lx, ly, lz) == 0:
+					set_block(lx, ly, lz, leaves_id, false)
+	set_block(cx, top + 2, cz, leaves_id, false)
+	# Ensure grass under trunk
+	set_block(cx, GROUND_Y, cz, BlockDB.get_id("dirt"), false)
+
+
+func _place_stone_outcrop() -> void:
+	## Surface stone near spawn so Survival players need not dig deep.
+	var stone_id := BlockDB.get_id("stone")
+	var spots: Array[Vector2i] = [
+		Vector2i(44, 30), Vector2i(45, 30), Vector2i(44, 31),
+		Vector2i(45, 31), Vector2i(46, 30), Vector2i(44, 29),
+	]
+	for s in spots:
+		set_block(s.x, GROUND_Y, s.y, stone_id, false)
+		set_block(s.x, GROUND_Y + 1, s.y, stone_id, false)
+	set_block(45, GROUND_Y + 2, 30, stone_id, false)
 
 
 func serialize() -> Dictionary:

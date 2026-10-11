@@ -2,30 +2,79 @@
   {
     "id": "wood_to_planks",
     "label": "Planks",
+    "station": "inventory",
     "inputs": {"wood": 1},
     "output": {"item": "planks", "count": 4}
   },
   {
     "id": "planks_to_sticks",
     "label": "Sticks",
+    "station": "inventory",
     "inputs": {"planks": 2},
     "output": {"item": "sticks", "count": 4}
   },
   {
-    "id": "wood_frame",
-    "label": "Wood Frame",
-    "inputs": {"wood": 1, "planks": 2},
-    "output": {"item": "brick", "count": 2}
+    "id": "crafting_table",
+    "label": "Crafting Table",
+    "station": "inventory",
+    "inputs": {"planks": 4},
+    "output": {"item": "crafting_table", "count": 1}
+  },
+  {
+    "id": "wooden_pickaxe",
+    "label": "Wooden Pickaxe",
+    "station": "crafting_table",
+    "inputs": {"planks": 3, "sticks": 2},
+    "output": {"item": "wooden_pickaxe", "count": 1}
+  },
+  {
+    "id": "wooden_axe",
+    "label": "Wooden Axe",
+    "station": "crafting_table",
+    "inputs": {"planks": 3, "sticks": 2},
+    "output": {"item": "wooden_axe", "count": 1}
+  },
+  {
+    "id": "wooden_shovel",
+    "label": "Wooden Shovel",
+    "station": "crafting_table",
+    "inputs": {"planks": 1, "sticks": 2},
+    "output": {"item": "wooden_shovel", "count": 1}
+  },
+  {
+    "id": "stone_pickaxe",
+    "label": "Stone Pickaxe",
+    "station": "crafting_table",
+    "inputs": {"cobble": 3, "sticks": 2},
+    "output": {"item": "stone_pickaxe", "count": 1}
+  },
+  {
+    "id": "stone_axe",
+    "label": "Stone Axe",
+    "station": "crafting_table",
+    "inputs": {"cobble": 3, "sticks": 2},
+    "output": {"item": "stone_axe", "count": 1}
+  },
+  {
+    "id": "stone_shovel",
+    "label": "Stone Shovel",
+    "station": "crafting_table",
+    "inputs": {"cobble": 1, "sticks": 2},
+    "output": {"item": "stone_shovel", "count": 1}
   },
   {
     "id": "glass_from_sand",
     "label": "Glass",
+    "station": "inventory",
+    "creative_only": true,
     "inputs": {"sand": 2},
     "output": {"item": "glass", "count": 1}
   },
   {
     "id": "flower_mix",
     "label": "Flower Block",
+    "station": "inventory",
+    "creative_only": true,
     "inputs": {"leaves": 2, "planks": 1},
     "output": {"item": "flower_block", "count": 1}
   }

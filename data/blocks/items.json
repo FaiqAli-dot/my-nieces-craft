@@ -1,3 +1,79 @@
 {
-  "sticks": {"display_name": "Sticks", "placeable": false, "icon_color": [0.65, 0.45, 0.2]}
+  "sticks": {
+    "display_name": "Sticks",
+    "placeable": false,
+    "category": "resource",
+    "max_stack": 64,
+    "icon_color": [0.65, 0.45, 0.2]
+  },
+  "wooden_pickaxe": {
+    "display_name": "Wooden Pickaxe",
+    "placeable": false,
+    "category": "tool",
+    "tool_type": "pickaxe",
+    "tool_tier": "wood",
+    "max_stack": 1,
+    "max_durability": 59,
+    "icon_color": [0.72, 0.55, 0.28]
+  },
+  "wooden_axe": {
+    "display_name": "Wooden Axe",
+    "placeable": false,
+    "category": "tool",
+    "tool_type": "axe",
+    "tool_tier": "wood",
+    "max_stack": 1,
+    "max_durability": 59,
+    "icon_color": [0.68, 0.5, 0.25]
+  },
+  "wooden_shovel": {
+    "display_name": "Wooden Shovel",
+    "placeable": false,
+    "category": "tool",
+    "tool_type": "shovel",
+    "tool_tier": "wood",
+    "max_stack": 1,
+    "max_durability": 59,
+    "icon_color": [0.7, 0.52, 0.3]
+  },
+  "stone_pickaxe": {
+    "display_name": "Stone Pickaxe",
+    "placeable": false,
+    "category": "tool",
+    "tool_type": "pickaxe",
+    "tool_tier": "stone",
+    "max_stack": 1,
+    "max_durability": 131,
+    "icon_color": [0.55, 0.55, 0.55]
+  },
+  "stone_axe": {
+    "display_name": "Stone Axe",
+    "placeable": false,
+    "category": "tool",
+    "tool_type": "axe",
+    "tool_tier": "stone",
+    "max_stack": 1,
+    "max_durability": 131,
+    "icon_color": [0.5, 0.5, 0.52]
+  },
+  "stone_shovel": {
+    "display_name": "Stone Shovel",
+    "placeable": false,
+    "category": "tool",
+    "tool_type": "shovel",
+    "tool_tier": "stone",
+    "max_stack": 1,
+    "max_durability": 131,
+    "icon_color": [0.48, 0.48, 0.5]
+  },
+  "copper_pickaxe": {
+    "display_name": "Copper Pickaxe",
+    "placeable": false,
+    "category": "tool",
+    "tool_type": "pickaxe",
+    "tool_tier": "copper",
+    "max_stack": 1,
+    "max_durability": 191,
+    "icon_color": [0.85, 0.5, 0.3]
+  }
 }

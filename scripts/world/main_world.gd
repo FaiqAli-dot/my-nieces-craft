@@ -45,9 +45,36 @@ func _ready() -> void:
 		var flight_layout := Node.new()
 		flight_layout.set_script(load("res://scripts/devtools/flight_layout_regression.gd"))
 		add_child(flight_layout)
+	if OS.get_environment("COZY_S2_SHOTS") == "1":
+		var s2shots := Node.new()
+		s2shots.set_script(load("res://scripts/devtools/s2_shots.gd"))
+		add_child(s2shots)
+	if OS.get_environment("COZY_S2_DEMO") == "1":
+		var s2demo := Node.new()
+		s2demo.set_script(load("res://scripts/devtools/s2_demo_driver.gd"))
+		add_child(s2demo)
+	# Kid-friendly mode pick when there is no save yet (skip under automated tests).
+	var skip_mode_ui := (
+		OS.get_environment("COZY_SMOKE") == "1"
+		or OS.get_environment("COZY_PLACE_UI_TEST") == "1"
+		or OS.get_environment("COZY_TOUCH_TEST") == "1"
+		or OS.get_environment("COZY_FLIGHT_LAYOUT_TEST") == "1"
+		or OS.get_environment("COZY_TRANSITION_TEST") == "1"
+		or OS.get_environment("COZY_MP_TEST") == "1"
+		or OS.get_environment("COZY_S2_SHOTS") == "1"
+		or OS.get_environment("COZY_S2_DEMO") == "1"
+		or OS.get_environment("COZY_SKIP_MODE_SELECT") == "1"
+	)
+	if not skip_mode_ui and not SaveGame.save_exists():
+		call_deferred("_offer_new_world")
 	if OS.get_environment("COZY_SMOKE") == "1":
 		await get_tree().create_timer(1.5).timeout
 		_run_smoke()
+
+
+func _offer_new_world() -> void:
+	if ui and ui.has_method("show_mode_select"):
+		ui.show_mode_select()
 
 
 func _setup_environment() -> void:
