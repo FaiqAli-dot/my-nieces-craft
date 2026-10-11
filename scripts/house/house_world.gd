@@ -1,5 +1,9 @@
 extends Node3D
 ## Phase 2 house sandbox: third-person decorating + multiplayer client.
+## Offline solo play uses a local HouseStore so Catalog → Place works without a server.
+
+const OFFLINE_OWNER_ID := "offline_local"
+const OFFLINE_DISPLAY := "You"
 
 @onready var space: HouseSpace = $HouseSpace
 @onready var player: ThirdPersonController = $Player
@@ -11,6 +15,9 @@ var _furniture: Dictionary = {} # instance_id -> FurnitureVisual
 var _selected_id: String = ""
 var _move_send_ok := true
 var _leaving := false
+var _offline_mode := false
+var _offline_store: HouseStore
+var _offline_layout: HouseLayout
 
 
 func _ready() -> void:
@@ -43,14 +50,16 @@ func _ready() -> void:
 			or OS.get_environment("COZY_TRANSITION_TEST") == "1"
 			or OS.get_environment("COZY_MP_TEST") == "1"
 			or OS.get_environment("COZY_SCREENSHOTS") == "1"
+			or OS.get_environment("COZY_HOUSE_PLACE_TEST") == "1"
+			or OS.get_environment("COZY_HOUSE_PLACE_SHOTS") == "1"
 		)
 		if not skip_probe:
-			# If the server is down, surface Offline quickly instead of a stuck Connecting chip.
+			# If the server is down, fall into offline decorate (same as AUTOSTART=0).
 			await get_tree().create_timer(2.5).timeout
 			if is_inside_tree() and NetClient.current_house.is_empty() and NetClient.connection_status() != "connected":
-				ui.set_status("Offline demo")
+				_enter_offline_mode("Offline demo")
 	else:
-		ui.set_status("Offline demo (server not started)")
+		_enter_offline_mode("Offline demo (server not started)")
 	if OS.get_environment("COZY_E2E_ROLE") != "":
 		var e2e := Node.new()
 		e2e.set_script(load("res://scripts/devtools/e2e_client_driver.gd"))
@@ -71,6 +80,14 @@ func _ready() -> void:
 		var hfs := Node.new()
 		hfs.set_script(load("res://scripts/devtools/house_facing_size_shots.gd"))
 		add_child(hfs)
+	if OS.get_environment("COZY_HOUSE_PLACE_TEST") == "1":
+		var place_test := Node.new()
+		place_test.set_script(load("res://scripts/devtools/house_place_regression.gd"))
+		add_child(place_test)
+	if OS.get_environment("COZY_HOUSE_PLACE_SHOTS") == "1":
+		var place_shots := Node.new()
+		place_shots.set_script(load("res://scripts/devtools/house_place_shots.gd"))
+		add_child(place_shots)
 	if OS.get_environment("COZY_SCREENSHOTS") == "1":
 		await get_tree().create_timer(1.2).timeout
 		await _run_shot_harness()
@@ -132,7 +149,10 @@ func _on_net_disconnected() -> void:
 	## Ignore teardown noise while returning to the meadow.
 	if _leaving or NetClient.is_transitioning() or not is_instance_valid(ui):
 		return
-	ui.set_status("Offline")
+	if NetClient.current_house.is_empty():
+		_enter_offline_mode("Offline demo")
+	else:
+		ui.set_status("Offline")
 
 
 func _on_welcomed(_info: Dictionary) -> void:
@@ -145,6 +165,7 @@ func _on_welcomed(_info: Dictionary) -> void:
 
 
 func _on_house_state(state: Dictionary) -> void:
+	_offline_mode = false
 	var house: Dictionary = state.get("house", {})
 	ui.apply_house_state(state)
 	var layout := HouseLayout.from_dict(house)
@@ -188,10 +209,63 @@ func _apply_layout_geometry(layout: HouseLayout) -> void:
 	placement.room_max = layout.room_max
 
 
+func is_online_decorating() -> bool:
+	return NetClient.connection_status() == "connected" and not NetClient.current_house.is_empty()
+
+
+func is_offline_mode() -> bool:
+	return _offline_mode
+
+
+func _offline_data_dir() -> String:
+	var env := OS.get_environment("COZY_HOUSE_DATA")
+	if env != "":
+		return env
+	return "user://houses"
+
+
+func _enter_offline_mode(status_text: String = "Offline demo") -> void:
+	## Solo play without a server: enable decorate + load local persistence.
+	_offline_mode = true
+	_offline_store = HouseStore.new(_offline_data_dir())
+	var existing_id := _offline_store.get_house_id_for_owner(OFFLINE_OWNER_ID)
+	if existing_id != "":
+		_offline_layout = _offline_store.load_house(existing_id)
+	if _offline_layout == null:
+		_offline_layout = _offline_store.ensure_house_for_owner(OFFLINE_OWNER_ID, OFFLINE_DISPLAY)
+		_offline_layout.display_name = "Your cozy house"
+		_offline_store.save_house(_offline_layout)
+	placement.can_decorate = true
+	_apply_layout_geometry(_offline_layout)
+	_rebuild_furniture(_offline_layout.furniture)
+	player.global_position = space.spawn_position()
+	ui.set_status(status_text)
+	ui.apply_house_state({
+		"house": _offline_layout.to_dict(),
+		"role": "Owner",
+		"players": [{"player_id": OFFLINE_OWNER_ID, "display_name": OFFLINE_DISPLAY}],
+	})
+	ui.refresh_size_chip(_offline_layout.size_tier)
+
+
+func _persist_offline() -> void:
+	if not _offline_mode or _offline_layout == null or _offline_store == null:
+		return
+	_offline_layout.furniture = _furniture_instance_list()
+	_offline_layout.room_min = placement.room_min
+	_offline_layout.room_max = placement.room_max
+	_offline_layout.size_tier = HouseLayout.tier_for_room_max(placement.room_max)
+	_offline_layout.revision += 1
+	_offline_store.save_house(_offline_layout)
+
+
 func apply_house_size_local(tier: String) -> void:
 	## Offline demo path — same validation rules as the server.
 	var layout: HouseLayout
-	if not NetClient.current_house.is_empty():
+	if _offline_mode and _offline_layout != null:
+		layout = _offline_layout
+		layout.furniture = _furniture_instance_list()
+	elif not NetClient.current_house.is_empty():
 		layout = HouseLayout.from_dict(NetClient.current_house)
 	else:
 		layout = HouseLayout.new()
@@ -202,12 +276,15 @@ func apply_house_size_local(tier: String) -> void:
 		GameState.toast(reason)
 		return
 	layout.apply_size_tier(tier, true)
-	if not NetClient.current_house.is_empty():
+	if not NetClient.current_house.is_empty() and not _offline_mode:
 		NetClient.current_house = layout.to_dict()
+	if _offline_mode:
+		_offline_layout = layout
 	_apply_layout_geometry(layout)
 	_rebuild_furniture(layout.furniture)
 	player.global_position = space.spawn_position()
 	ui.refresh_size_chip(layout.size_tier)
+	_persist_offline()
 	GameState.toast("House is now " + HouseLayout.label_for_tier(layout.size_tier))
 
 
@@ -341,15 +418,17 @@ func _on_left() -> void:
 	for pid in _remotes.keys():
 		_remotes[pid].queue_free()
 	_remotes.clear()
-	ui.set_status("Left house")
+	# Return to solo decorate so Catalog still works after leaving a visit.
+	_enter_offline_mode("Offline demo")
 
 
 func _on_err(info: Dictionary) -> void:
 	ui.set_status(str(info.get("message", "Error")))
+	GameState.toast(str(info.get("message", "Error")))
 
 
 func _on_local_moved(pos: Vector3, yaw: float, moving: bool) -> void:
-	if NetClient.current_house.is_empty():
+	if not is_online_decorating():
 		return
 	NetClient.send_move(pos, yaw, moving)
 
@@ -357,17 +436,86 @@ func _on_local_moved(pos: Vector3, yaw: float, moving: bool) -> void:
 func _on_place_req(def_id: String, cell: Vector2i, rotation: int) -> void:
 	player.placement_locked = false
 	player.capture_mouse()
-	NetClient.place_furniture(def_id, cell, rotation)
+	if is_online_decorating():
+		NetClient.place_furniture(def_id, cell, rotation)
+		return
+	_place_furniture_local(def_id, cell, rotation)
 
 
 func _on_move_req(iid: String, cell: Vector2i, rotation: int) -> void:
 	player.placement_locked = false
 	player.capture_mouse()
-	NetClient.move_furniture(iid, cell, rotation)
+	if is_online_decorating():
+		NetClient.move_furniture(iid, cell, rotation)
+		return
+	_move_furniture_local(iid, cell, rotation)
 
 
 func _on_remove_req(iid: String) -> void:
-	NetClient.remove_furniture(iid)
+	if is_online_decorating():
+		NetClient.remove_furniture(iid)
+		return
+	_remove_furniture_local(iid)
+
+
+func _place_furniture_local(def_id: String, cell: Vector2i, rotation: int) -> void:
+	var occupied := FurnitureValidator.build_occupied_map(_furniture_instance_list())
+	var reason := FurnitureValidator.validate_placement(
+		def_id, cell, rotation, placement.room_min, placement.room_max, occupied
+	)
+	if reason != FurnitureValidator.Reason.OK:
+		GameState.toast(FurnitureValidator.reason_text(reason))
+		return
+	var inst := {
+		"instance_id": "furn_local_%d" % Time.get_ticks_usec(),
+		"def_id": def_id,
+		"cell_x": cell.x,
+		"cell_z": cell.y,
+		"rotation": FurnitureGrid.normalize_rotation(rotation),
+	}
+	_spawn_furniture(inst)
+	placement.set_instances(_furniture)
+	_persist_offline()
+	GameState.toast("Placed " + FurnitureDB.display_name(def_id) + "!")
+
+
+func _move_furniture_local(iid: String, cell: Vector2i, rotation: int) -> void:
+	if not _furniture.has(iid):
+		return
+	var vis: FurnitureVisual = _furniture[iid]
+	var occupied := FurnitureValidator.build_occupied_map(_furniture_instance_list())
+	var reason := FurnitureValidator.validate_placement(
+		vis.def_id, cell, rotation, placement.room_min, placement.room_max, occupied, iid
+	)
+	if reason != FurnitureValidator.Reason.OK:
+		GameState.toast(FurnitureValidator.reason_text(reason))
+		vis.visible = true
+		return
+	var inst := {
+		"instance_id": iid,
+		"def_id": vis.def_id,
+		"cell_x": cell.x,
+		"cell_z": cell.y,
+		"rotation": FurnitureGrid.normalize_rotation(rotation),
+	}
+	vis.visible = true
+	vis.update_transform(inst, space.grid_origin, HouseSpace.FLOOR_Y)
+	placement.set_instances(_furniture)
+	_persist_offline()
+	GameState.toast("Moved " + FurnitureDB.display_name(vis.def_id) + "!")
+
+
+func _remove_furniture_local(iid: String) -> void:
+	if not _furniture.has(iid):
+		return
+	var name := FurnitureDB.display_name((_furniture[iid] as FurnitureVisual).def_id)
+	_furniture[iid].queue_free()
+	_furniture.erase(iid)
+	if _selected_id == iid:
+		_selected_id = ""
+	placement.set_instances(_furniture)
+	_persist_offline()
+	GameState.toast("Removed " + name)
 
 
 func start_place(def_id: String) -> void:
@@ -405,7 +553,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				player.release_mouse()
 				placement.begin_move(_furniture[_selected_id])
 		if event is InputEventKey and event.pressed and event.physical_keycode == KEY_X and _selected_id != "":
-			NetClient.remove_furniture(_selected_id)
+			_on_remove_req(_selected_id)
 			_selected_id = ""
 
 

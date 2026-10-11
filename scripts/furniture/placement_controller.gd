@@ -32,6 +32,7 @@ var _ghost_mat_bad: StandardMaterial3D
 var _fp_mat_ok: StandardMaterial3D
 var _fp_mat_bad: StandardMaterial3D
 var _valid := false
+var _last_reason: int = FurnitureValidator.Reason.OK
 var _anchor := Vector2i.ZERO
 var _instances: Dictionary = {} # id -> FurnitureVisual
 
@@ -61,17 +62,21 @@ func set_instances(map: Dictionary) -> void:
 
 
 func begin_place(id: String) -> void:
-	if not can_decorate or not FurnitureDB.has_id(id):
-		GameState.toast("Can't decorate right now")
+	if not FurnitureDB.has_id(id):
+		GameState.toast(FurnitureValidator.reason_text(FurnitureValidator.Reason.UNKNOWN_DEF))
+		return
+	if not can_decorate:
+		GameState.toast(FurnitureValidator.reason_text(FurnitureValidator.Reason.NO_PERMISSION))
 		return
 	cancel()
 	mode = Mode.PLACE
 	def_id = id
 	instance_id = ""
 	rotation_deg = 0
+	_last_reason = FurnitureValidator.Reason.OK
 	_show_grid(true)
 	_build_preview()
-	GameState.toast("Place " + FurnitureDB.display_name(id))
+	GameState.toast("Place " + FurnitureDB.display_name(id) + " — click or Place")
 
 
 func begin_move(visual: FurnitureVisual) -> void:
@@ -108,8 +113,13 @@ func rotate_preview(steps: int = 1) -> void:
 
 
 func confirm() -> void:
-	if mode == Mode.IDLE or not _valid:
-		GameState.toast("Can't place there")
+	if mode == Mode.IDLE:
+		return
+	if not _valid:
+		var why := FurnitureValidator.reason_text(_last_reason)
+		if why == "ok" or why == "":
+			why = "Can't place there"
+		GameState.toast(why)
 		return
 	if mode == Mode.PLACE:
 		placement_requested.emit(def_id, _anchor, rotation_deg)
@@ -118,6 +128,18 @@ func confirm() -> void:
 	_clear_preview()
 	_show_grid(false)
 	mode = Mode.IDLE
+
+
+func last_reason() -> int:
+	return _last_reason
+
+
+func is_preview_valid() -> bool:
+	return _valid
+
+
+func preview_anchor() -> Vector2i:
+	return _anchor
 
 
 func remove_selected() -> void:
@@ -226,6 +248,7 @@ func _physics_process(_delta: float) -> void:
 	var hit := _floor_hit()
 	if hit == Vector3.INF:
 		_valid = false
+		_last_reason = FurnitureValidator.Reason.BAD_SURFACE
 		_tint(false)
 		return
 	_anchor = FurnitureGrid.world_to_cell(hit, grid_origin)
@@ -242,10 +265,10 @@ func _physics_process(_delta: float) -> void:
 		var cells := FurnitureGrid.occupied_cells(vis.cell, FurnitureDB.footprint(vis.def_id), vis.rotation_deg)
 		for c in cells:
 			occupied["%d,%d" % [c.x, c.y]] = iid
-	var reason := FurnitureValidator.validate_placement(
+	_last_reason = FurnitureValidator.validate_placement(
 		def_id, _anchor, rotation_deg, room_min, room_max, occupied, instance_id
 	)
-	_valid = reason == FurnitureValidator.Reason.OK
+	_valid = _last_reason == FurnitureValidator.Reason.OK
 	_update_preview_xform()
 	_tint(_valid)
 
