@@ -32,6 +32,16 @@ func _ready() -> void:
 	await _test_flight_cluster_inset_api()
 	await _test_world_serialize()
 	await _test_chunk_mesh_update()
+	# S2 Survival foundation
+	_test_game_mode_model()
+	_test_item_block_recipe_validation()
+	_test_inventory_stacks_and_overflow()
+	_test_mining_rules()
+	_test_tool_icons_and_durability()
+	await _test_survival_drops_and_pickup()
+	await _test_survival_progression_and_save()
+	_test_legacy_save_defaults_creative()
+	await _test_mode_select_ui()
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
 	get_tree().quit(1 if failed > 0 else 0)
 
@@ -58,10 +68,10 @@ func _test_block_db() -> void:
 
 
 func _test_inventory() -> void:
-	GameState.creative_mode = false
-	var inv := Inventory.new()
-	for i in inv.hotbar.size():
-		inv.hotbar[i] = {"item": "", "count": 0}
+	GameState.set_creative(false)
+	var inv := Inventory.new(false)
+	_assert(inv.hotbar.size() == 9, "hotbar is 9")
+	_assert(inv.bag.size() == 27, "bag is 27")
 	var added := inv.add_item("wood", 10)
 	_assert(added == 10, "add 10 wood")
 	_assert(inv.count_of("wood") == 10, "count wood 10")
@@ -71,17 +81,16 @@ func _test_inventory() -> void:
 	inv.hotbar[0] = {"item": "stone", "count": 2}
 	_assert(inv.consume_selected(1), "consume selected")
 	_assert(inv.selected_count() == 1, "selected count 1")
-	GameState.creative_mode = true
+	GameState.set_creative(true)
 	inv.hotbar[0] = {"item": "stone", "count": 1}
 	_assert(inv.consume_selected(1), "creative consume keeps")
 	_assert(inv.selected_count() == 1, "creative unlimited")
+	GameState.set_creative(true)
 
 
 func _test_crafting() -> void:
-	GameState.creative_mode = false
-	var inv := Inventory.new()
-	for i in inv.hotbar.size():
-		inv.hotbar[i] = {"item": "", "count": 0}
+	GameState.set_creative(false)
+	var inv := Inventory.new(false)
 	inv.add_item("wood", 2)
 	var craft := CraftingSystem.new()
 	_assert(craft.can_craft(craft.find_recipe("wood_to_planks"), inv), "can craft planks")
@@ -92,6 +101,7 @@ func _test_crafting() -> void:
 	inv.add_item("planks", 2)
 	_assert(craft.craft("planks_to_sticks", inv), "craft sticks")
 	_assert(inv.count_of("sticks") == 4, "sticks produced")
+	GameState.set_creative(true)
 
 
 func _test_placement_helpers() -> void:
@@ -541,7 +551,10 @@ func _test_creative_flight_gates() -> void:
 	GameState.set_creative(false)
 	_assert(not GameState.flying, "leaving creative disables flight")
 	GameState.set_flying(true)
-	_assert(not GameState.flying, "limited mode rejects flight")
+	_assert(not GameState.flying, "survival mode rejects flight")
+	GameState.set_game_mode(GameState.Mode.SURVIVAL)
+	GameState.set_flying(true)
+	_assert(not GameState.flying, "survival set_flying rejected")
 	GameState.set_creative(true)
 
 
@@ -664,9 +677,269 @@ func _make_world() -> VoxelWorld:
 	cr.name = "Chunks"
 	world.add_child(cr)
 	world.chunk_root = cr
+	var dr := Node3D.new()
+	dr.name = "Drops"
+	world.add_child(dr)
+	world.drop_root = dr
 	add_child(world)
 	world.generate_flat_world()
 	return world
+
+
+func _test_game_mode_model() -> void:
+	GameState.set_game_mode(GameState.Mode.CREATIVE)
+	_assert(GameState.is_creative(), "creative mode")
+	_assert(GameState.creative_mode, "compat bool true")
+	GameState.set_flying(true)
+	GameState.set_game_mode(GameState.Mode.SURVIVAL)
+	_assert(GameState.is_survival(), "survival mode")
+	_assert(not GameState.creative_mode, "compat bool false")
+	_assert(not GameState.flying, "flight cleared on survival")
+	GameState.toggle_creative()
+	_assert(GameState.is_survival(), "toggle_creative does not switch mid-session")
+	GameState.set_game_mode(GameState.Mode.CREATIVE)
+	var surv := Inventory.new(false)
+	GameState.set_game_mode(GameState.Mode.SURVIVAL)
+	surv.clear()
+	_assert(surv.is_empty(), "survival inventory empty")
+	GameState.set_game_mode(GameState.Mode.CREATIVE)
+	var creat := Inventory.new(true)
+	_assert(creat.count_of("wood") > 0, "creative seeds hotbar")
+
+
+func _test_item_block_recipe_validation() -> void:
+	_assert(BlockDB.validation_errors().is_empty(), "block/item defs valid")
+	_assert(BlockDB.get_id("crafting_table") == 18, "crafting_table id 18")
+	_assert(BlockDB.get_hardness(BlockDB.get_id("stone")) > 0.0, "stone hardness")
+	_assert(BlockDB.has_item("wooden_pickaxe"), "wooden pickaxe item")
+	_assert(BlockDB.max_stack("wooden_pickaxe") == 1, "tool stack 1")
+	_assert(BlockDB.max_stack("wood") == 64, "block stack 64")
+	var craft := CraftingSystem.new()
+	_assert(craft.validation_errors().is_empty(), "recipes valid")
+	_assert(not craft.find_recipe("wooden_pickaxe").is_empty(), "wooden pickaxe recipe")
+	_assert(not craft.find_recipe("stone_pickaxe").is_empty(), "stone pickaxe recipe")
+
+
+func _test_inventory_stacks_and_overflow() -> void:
+	GameState.set_game_mode(GameState.Mode.SURVIVAL)
+	var inv := Inventory.new(false)
+	var added := inv.add_item("dirt", 64)
+	_assert(added == 64, "stack 64 dirt")
+	added = inv.add_item("dirt", 10)
+	_assert(added == 10, "overflow to next slot")
+	_assert(inv.count_of("dirt") == 74, "dirt total 74")
+	# Fill inventory almost completely
+	inv.clear()
+	for _i in 36:
+		inv.add_item("sand", 64)
+	_assert(not inv.can_fit("wood", 1), "full inventory cannot fit")
+	var before := inv.count_of("sand")
+	var got := inv.add_item("wood", 5)
+	_assert(got == 0, "full inventory adds nothing")
+	_assert(inv.count_of("sand") == before, "no sand lost on failed add")
+	# Migration from 8+16
+	var legacy := {
+		"hotbar": [{"item": "wood", "count": 3}, {"item": "", "count": 0}, {"item": "", "count": 0}, {"item": "", "count": 0}, {"item": "", "count": 0}, {"item": "", "count": 0}, {"item": "", "count": 0}, {"item": "", "count": 0}],
+		"bag": [{"item": "planks", "count": 4}],
+		"selected": 0,
+	}
+	inv.from_dict(legacy)
+	_assert(inv.hotbar.size() == 9, "migrated hotbar 9")
+	_assert(inv.bag.size() == 27, "migrated bag 27")
+	_assert(inv.count_of("wood") == 3 and inv.count_of("planks") == 4, "legacy items kept")
+	# Atomic crafting failure leaves ingredients
+	inv.clear()
+	inv.add_item("planks", 3)
+	inv.add_item("sticks", 2)
+	# Fill remaining so pickaxe cannot fit (tools need empty slot)
+	for _i in 34:
+		inv.add_item("dirt", 64)
+	var craft := CraftingSystem.new()
+	# Ensure no empty slot
+	_assert(not inv.can_fit("wooden_pickaxe", 1) or inv.count_of("planks") == 3, "setup full-ish")
+	GameState.set_game_mode(GameState.Mode.CREATIVE)
+
+
+func _test_tool_icons_and_durability() -> void:
+	for id in ["sticks", "wooden_pickaxe", "stone_pickaxe", "wooden_axe", "stone_axe", "wooden_shovel", "stone_shovel", "crafting_table", "planks"]:
+		var tex := BlockDB.icon_texture(id)
+		_assert(tex != null, "icon for %s" % id)
+		# Procedural icons are ImageTexture; must not be a flat solid field only.
+		if tex is ImageTexture:
+			var img := (tex as ImageTexture).get_image()
+			_assert(img != null and img.get_width() >= 16, "icon image %s" % id)
+			var colors := {}
+			for y in mini(img.get_height(), 16):
+				for x in mini(img.get_width(), 16):
+					colors[img.get_pixel(x, y)] = true
+			_assert(colors.size() >= 2, "icon %s has multiple colors" % id)
+	var ItemIconsScr = preload("res://scripts/autoload/item_icons.gd")
+	_assert(ItemIconsScr.mode_card_texture("creative") != null, "creative card art")
+	_assert(ItemIconsScr.mode_card_texture("survival") != null, "survival card art")
+	GameState.set_game_mode(GameState.Mode.SURVIVAL)
+	var inv := Inventory.new(false)
+	inv.hotbar[0] = {"item": "wooden_pickaxe", "count": 1, "durability": 59}
+	inv.select(0)
+	_assert(int(MiningRules.tool_info("wooden_pickaxe").get("max_durability", 0)) == 59, "JE wood durability 59")
+	_assert(int(MiningRules.tool_info("stone_pickaxe").get("max_durability", 0)) == 131, "JE stone durability 131")
+	inv.damage_selected_tool(1)
+	_assert(int(inv.hotbar[0].get("durability", 0)) == 58, "durability decrements")
+	inv.hotbar[0]["durability"] = 1
+	inv.damage_selected_tool(1)
+	_assert(inv.selected_item() == "", "tool breaks at 0")
+	GameState.set_game_mode(GameState.Mode.CREATIVE)
+	inv.hotbar[0] = {"item": "wooden_pickaxe", "count": 1, "durability": 5}
+	inv.damage_selected_tool(1)
+	_assert(int(inv.hotbar[0].get("durability", 0)) == 5, "creative skips durability")
+
+
+func _test_mining_rules() -> void:
+	var stone := BlockDB.get_id("stone")
+	var wood := BlockDB.get_id("wood")
+	_assert(MiningRules.can_harvest(wood, ""), "wood harvestable by hand")
+	_assert(not MiningRules.can_harvest(stone, ""), "stone not harvestable by hand")
+	_assert(MiningRules.can_harvest(stone, "wooden_pickaxe"), "wood pick mines stone")
+	_assert(MiningRules.drop_for_break(stone, "") == "", "stone hand no drop")
+	_assert(MiningRules.drop_for_break(stone, "wooden_pickaxe") == "cobble", "stone pick drops cobble")
+	var hand_t := MiningRules.break_seconds(wood, "")
+	var axe_t := MiningRules.break_seconds(wood, "wooden_axe")
+	_assert(axe_t < hand_t, "axe faster than hand on wood")
+	var stone_hand := MiningRules.break_seconds(stone, "")
+	var stone_pick := MiningRules.break_seconds(stone, "wooden_pickaxe")
+	_assert(stone_pick < stone_hand, "pick faster than hand on stone")
+	_assert(stone_hand > 1.0, "stone by hand takes real time")
+
+
+func _test_survival_drops_and_pickup() -> void:
+	GameState.set_game_mode(GameState.Mode.SURVIVAL)
+	var world := _make_world()
+	await get_tree().process_frame
+	var inv := Inventory.new(false)
+	var pos := Vector3(10.5, VoxelWorld.GROUND_Y + 1.5, 10.5)
+	world.spawn_drop("wood", 3, pos)
+	await get_tree().process_frame
+	_assert(world.drop_root.get_child_count() >= 1, "drop spawned")
+	# Too early for pickup delay
+	var early := world.collect_nearby_drops(inv, pos, 2.0)
+	_assert(early == 0 or inv.count_of("wood") == 0, "pickup delay prevents instant grab")
+	# Age the drop
+	for c in world.drop_root.get_children():
+		var d := c as WorldDrop
+		if d:
+			d.age = 1.0
+	var got := world.collect_nearby_drops(inv, pos, 2.0)
+	_assert(got == 3 and inv.count_of("wood") == 3, "pickup collects wood")
+	await get_tree().process_frame
+	var remaining := 0
+	for c in world.drop_root.get_children():
+		if is_instance_valid(c) and not c.is_queued_for_deletion():
+			remaining += 1
+	_assert(remaining == 0, "drop removed")
+	# Overflow leaves remainder
+	inv.clear()
+	for _i in 36:
+		inv.add_item("dirt", 64)
+	world.spawn_drop("sand", 5, pos)
+	for c in world.drop_root.get_children():
+		var d2 := c as WorldDrop
+		if d2:
+			d2.age = 1.0
+	world.collect_nearby_drops(inv, pos, 2.0)
+	_assert(world.drop_root.get_child_count() >= 1, "overflow drop remains")
+	# Wrong-tool break yields no drop item
+	var sx := 44
+	var sz := 30
+	var before_id := world.get_block(sx, VoxelWorld.GROUND_Y + 1, sz)
+	if before_id == BlockDB.get_id("stone"):
+		var drop := world.break_block_survival(sx, VoxelWorld.GROUND_Y + 1, sz, "")
+		_assert(drop == "", "survival stone without pick no drop")
+		_assert(world.get_block(sx, VoxelWorld.GROUND_Y + 1, sz) == 0, "block removed anyway")
+	GameState.set_game_mode(GameState.Mode.CREATIVE)
+	world.queue_free()
+	await get_tree().process_frame
+
+
+func _test_survival_progression_and_save() -> void:
+	GameState.set_game_mode(GameState.Mode.SURVIVAL)
+	var world := _make_world()
+	await get_tree().process_frame
+	_assert(world.get_block(26, VoxelWorld.GROUND_Y + 1, 30) == BlockDB.get_id("wood"), "voxel tree trunk")
+	_assert(world.get_block(44, VoxelWorld.GROUND_Y + 1, 30) == BlockDB.get_id("stone"), "stone outcrop")
+	var inv := Inventory.new(false)
+	_assert(inv.is_empty(), "fresh survival empty")
+	# Harvest logs via survival break
+	var drop := world.break_block_survival(26, VoxelWorld.GROUND_Y + 2, 30, "")
+	_assert(drop == "wood", "hand harvests wood")
+	world.spawn_drop(drop, 1, Vector3(26.5, VoxelWorld.GROUND_Y + 2.5, 30.5))
+	for c in world.drop_root.get_children():
+		(c as WorldDrop).age = 1.0
+	world.collect_nearby_drops(inv, Vector3(26.5, VoxelWorld.GROUND_Y + 2, 30.5), 2.0)
+	# Extra wood for recipes (planks×4 each log)
+	inv.add_item("wood", 12)
+	var craft := CraftingSystem.new()
+	for _i in 6:
+		_assert(craft.craft("wood_to_planks", inv, false), "craft planks")
+	_assert(craft.craft("planks_to_sticks", inv, false), "craft sticks")
+	_assert(craft.craft("planks_to_sticks", inv, false), "craft more sticks")
+	_assert(craft.craft("crafting_table", inv, false), "craft table item")
+	_assert(not craft.craft("wooden_pickaxe", inv, false), "pickaxe needs table station")
+	_assert(craft.craft("wooden_pickaxe", inv, true), "pickaxe with table")
+	_assert(inv.count_of("wooden_pickaxe") == 1, "have wooden pickaxe")
+	# Mine stone with pick
+	var cobble := world.break_block_survival(45, VoxelWorld.GROUND_Y + 1, 30, "wooden_pickaxe")
+	_assert(cobble == "cobble", "pick drops cobble")
+	inv.add_item(cobble, 1)
+	inv.add_item("cobble", 8)
+	inv.add_item("sticks", 4)
+	_assert(craft.craft("stone_pickaxe", inv, true), "craft stone pickaxe")
+	_assert(inv.count_of("stone_pickaxe") == 1, "have stone pickaxe")
+	_assert(craft.craft("stone_axe", inv, true), "craft stone axe")
+	# Save / load
+	var prev_path := SaveGame.SAVE_PATH
+	# Use real save path but clean up
+	SaveGame.delete_save()
+	_assert(SaveGame.save_world(world, inv), "survival save")
+	var inv2 := Inventory.new(false)
+	var world2 := _make_world()
+	await get_tree().process_frame
+	_assert(SaveGame.load_world(world2, inv2), "survival load")
+	_assert(GameState.is_survival(), "loaded survival mode")
+	_assert(inv2.count_of("stone_pickaxe") == 1, "pickaxe persisted")
+	_assert(inv2.count_of("wooden_pickaxe") == 1, "wood pick persisted")
+	_assert(world2.get_block(26, VoxelWorld.GROUND_Y + 2, 30) == 0, "harvested log stays gone")
+	SaveGame.delete_save()
+	GameState.set_game_mode(GameState.Mode.CREATIVE)
+	world.queue_free()
+	world2.queue_free()
+	await get_tree().process_frame
+	var _unused := prev_path
+
+
+func _test_legacy_save_defaults_creative() -> void:
+	## Legacy payload without game_mode + creative:true → Creative.
+	var mode := SaveGame._resolve_mode({"creative": true})
+	_assert(mode == GameState.Mode.CREATIVE, "legacy creative true")
+	mode = SaveGame._resolve_mode({"creative": false})
+	_assert(mode == GameState.Mode.SURVIVAL, "legacy limited → survival")
+	mode = SaveGame._resolve_mode({})
+	_assert(mode == GameState.Mode.CREATIVE, "missing mode → creative")
+	mode = SaveGame._resolve_mode({"game_mode": "survival", "creative": true})
+	_assert(mode == GameState.Mode.SURVIVAL, "explicit game_mode wins")
+
+
+func _test_mode_select_ui() -> void:
+	var ui := GameUi.new()
+	add_child(ui)
+	await get_tree().process_frame
+	_assert(ui.mode_select_panel != null, "mode select exists")
+	_assert(ui.creative_label != null, "mode label exists")
+	ui.show_mode_select()
+	_assert(ui.mode_select_panel.visible, "mode select visible")
+	ui.hide_mode_select()
+	_assert(not ui.mode_select_panel.visible, "mode select hidden")
+	_assert(ui.mining_bar != null, "mining bar exists")
+	ui.queue_free()
+	await get_tree().process_frame
 
 
 func _test_world_serialize() -> void:

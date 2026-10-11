@@ -30,32 +30,15 @@ Phase 1.6 intentionally does **not** implement Survival. This note maps what Coz
 
 Do **not** ship a fake Survival that only draws a heart bar while keeping creative flight, infinite blocks, and one-hit break.
 
-## Target edition / version (needs approval)
+## Target edition / version — **LOCKED**
 
-Pick one primary rule set before implementation. Candidates:
+**Primary target = Minecraft Java Edition 26.3** (product decision for S2).
 
-| Target | Why | Key rule differences |
-|--------|-----|----------------------|
-| **Java 1.20.1** (recommend default) | Stable docs, common “classic” sandbox reference; matches many tutorials kids’ parents know | Natural regen with hunger ≥ 18; exhaustion from sprint/jump; bed skips night if all players sleep; creeper/zombie/skeleton classic kit |
-| **Java 1.21.x** | Newer; trial chambers / new mobs if we ever want them | Extra mobs/blocks; combat still similar; more content surface area |
-| **Bedrock 1.20/1.21** | Closer to mobile/console family play | Spawn rules & redstone differ; hunger/regen broadly similar; some drop tables differ |
-| **Minecraft Education** | Classroom-friendly | Often creative-first; survival extras vary — poor fit unless curriculum demands it |
+S2 implements the wood→stone gathering/crafting loop only (see `docs/S2_SURVIVAL.md`). Hunger, combat, day/night, ores, and mobs remain later phases.
 
-**Version-dependent choices to lock explicitly**
+## Suggested phase split
 
-- Combat: Java 1.9+ attack cooldown vs legacy spam-click.
-- Hunger: do we implement full exhaustion or a simplified kid-friendly drain?
-- KeepInventory: off by default (Java default) vs optional soft mode for ages 5–8.
-- Hostile mob set: full classic set vs gentle slime-only “cozy survival”.
-- Multiplayer meadow survival: local-only first vs later authoritative server (house server is furniture-only today).
-
-## Suggested phase split (after approval)
-
-1. **Survival foundations** — gamemode enum, vitals, hunger, death/respawn, creative/survival rule fork, save schema.
-2. **Gathering** — hardness, tools, durability, drops.
-3. **World living** — time cycle, passive mobs, then limited hostiles.
-4. **Polish** — difficulty, sounds, UI hearts/drumsticks, soft-kid options.
-
-## Approval ask
-
-Please confirm: **primary target = Java Edition 1.20.1 rules**, with an optional **Cozy soft mode** (slower hunger, fewer hostiles, keepInventory toggle) for the nieces’ age range — without changing the underlying edition math when soft mode is off.
+1. **S2 Survival foundations (done)** — gamemode enum, timed mining, tools, drops, 9+27 inventory, JE recipes, save schema, New World UI.
+2. **Gathering+** — fuller durability UX, more tools, furnaces.
+3. **World living** — time cycle, passive mobs, then limited hostiles; vitals/hunger.
+4. **Polish** — difficulty behavior, hearts/drumsticks, soft-kid options.

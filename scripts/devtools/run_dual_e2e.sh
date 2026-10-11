@@ -12,26 +12,56 @@ rm -f "$E2E_DIR"/*
 
 echo "[E2E] dir=$E2E_DIR port=$PORT"
 
-# 1) Headless server
-godot --headless --path . res://scenes/server/server.tscn \
-  >"$E2E_DIR/server.log" 2>&1 &
-SERVER_PID=$!
-export COZY_NET_PORT="$PORT" COZY_HOUSE_DATA="$DATA_DIR"
-# Restart server with env (previous may have defaulted) — kill and relaunch cleanly
-kill "$SERVER_PID" 2>/dev/null || true
+# Free stale listeners on this port (prior dual-e2e / stray server.tscn).
+if command -v fuser >/dev/null 2>&1; then
+  fuser -k "${PORT}/tcp" 2>/dev/null || true
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -tiTCP:"$PORT" -sTCP:LISTEN | xargs -r kill 2>/dev/null || true
+fi
 sleep 0.3
+
+# 1) Headless server (with env from the first launch)
+export COZY_NET_PORT="$PORT" COZY_HOUSE_DATA="$DATA_DIR"
 COZY_NET_PORT="$PORT" COZY_HOUSE_DATA="$DATA_DIR" \
   godot --headless --path . res://scenes/server/server.tscn \
   >"$E2E_DIR/server.log" 2>&1 &
 SERVER_PID=$!
-sleep 1.2
+for _i in $(seq 1 40); do
+  if grep -q "listening on" "$E2E_DIR/server.log" 2>/dev/null; then
+    break
+  fi
+  if grep -q "Failed to listen" "$E2E_DIR/server.log" 2>/dev/null; then
+    echo "[E2E] server failed to bind port $PORT" >&2
+    cat "$E2E_DIR/server.log" >&2 || true
+    exit 1
+  fi
+  sleep 0.15
+done
+if ! grep -q "listening on" "$E2E_DIR/server.log" 2>/dev/null; then
+  echo "[E2E] server did not become ready" >&2
+  cat "$E2E_DIR/server.log" >&2 || true
+  exit 1
+fi
 
 # Shared Xvfb for dual windows side-by-side
 export DISPLAY=:98
 pkill -f "Xvfb :98" 2>/dev/null || true
+rm -f /tmp/.X98-lock /tmp/.X11-unix/X98 2>/dev/null || true
+sleep 0.2
 Xvfb :98 -screen 0 2560x720x24 >/tmp/xvfb98.log 2>&1 &
 XVFB_PID=$!
-sleep 0.8
+for _i in $(seq 1 40); do
+  if xdpyinfo -display :98 >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.1
+done
+if ! xdpyinfo -display :98 >/dev/null 2>&1; then
+  echo "[E2E] Xvfb :98 not ready" >&2
+  cat /tmp/xvfb98.log >&2 || true
+  kill "$SERVER_PID" 2>/dev/null || true
+  exit 1
+fi
 
 # 2) Alice client (left)
 COZY_NET_HOST=127.0.0.1 COZY_NET_PORT="$PORT" \
@@ -93,16 +123,21 @@ LEFT="$SHOT_DIR/alice_02_both_visible.png"
 RIGHT="$SHOT_DIR/bob_02_placed.png"
 if [[ ! -f "$LEFT" ]]; then LEFT="$SHOT_DIR/alice_03_synced_chair.png"; fi
 if [[ -f "$LEFT" && -f "$RIGHT" ]]; then
-  python3 - <<PY
-from PIL import Image
-left = Image.open("$LEFT")
-right = Image.open("$RIGHT")
+  LEFT="$LEFT" RIGHT="$RIGHT" SHOT_DIR="$SHOT_DIR" python3 - <<'PY' || echo "[E2E] side-by-side collage skipped (Pillow unavailable)"
+import os, sys
+try:
+    from PIL import Image
+except ImportError:
+    sys.exit(1)
+left = Image.open(os.environ["LEFT"])
+right = Image.open(os.environ["RIGHT"])
 h = max(left.height, right.height)
 canvas = Image.new("RGB", (left.width + right.width, h), (40, 44, 48))
 canvas.paste(left, (0, 0))
 canvas.paste(right, (left.width, 0))
-canvas.save("$SHOT_DIR/08_dual_client_side_by_side.png")
-print("wrote side-by-side", "$SHOT_DIR/08_dual_client_side_by_side.png")
+out = os.path.join(os.environ["SHOT_DIR"], "08_dual_client_side_by_side.png")
+canvas.save(out)
+print("wrote side-by-side", out)
 PY
 fi
 

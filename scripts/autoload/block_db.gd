@@ -1,20 +1,22 @@
 extends Node
-## Loads block definitions and provides lookup helpers.
+## Loads block/item definitions and provides lookup helpers.
 
 const BLOCKS_PATH := "res://data/blocks/blocks.json"
 const ITEMS_PATH := "res://data/blocks/items.json"
 const TEXTURE_DIR := "res://assets/textures/blocks/"
+const ItemIconsScr = preload("res://scripts/autoload/item_icons.gd")
 
 var _by_name: Dictionary = {}
 var _by_id: Dictionary = {}
 var _items: Dictionary = {}
 var _atlas: ImageTexture
 var _atlas_rects: Dictionary = {} # block_name -> {face: Rect2}
-var _materials: Dictionary = {} # block_id -> StandardMaterial3D (or ArrayMesh materials handled per face via atlas UV)
+var _validation_errors: Array[String] = []
 
 func _ready() -> void:
 	_load_blocks()
 	_load_items()
+	_validate_defs()
 	_build_atlas()
 
 
@@ -39,12 +41,52 @@ func _load_items() -> void:
 		_items = data
 
 
+func _validate_defs() -> void:
+	_validation_errors.clear()
+	var seen_ids := {}
+	for key in _by_name.keys():
+		var def: Dictionary = _by_name[key]
+		var id := int(def.get("id", -1))
+		if seen_ids.has(id):
+			_validation_errors.append("Duplicate block id %d for %s" % [id, key])
+		seen_ids[id] = key
+		var drop := str(def.get("drop", ""))
+		if drop != "" and not _by_name.has(drop) and not _items.has(drop):
+			_validation_errors.append("Block %s drop '%s' is unknown" % [key, drop])
+	for key in _items.keys():
+		var idef: Dictionary = _items[key]
+		var tool_type := str(idef.get("tool_type", ""))
+		if tool_type != "" and tool_type not in ["pickaxe", "axe", "shovel", "hoe", "sword"]:
+			_validation_errors.append("Item %s has invalid tool_type '%s'" % [key, tool_type])
+		var places := str(idef.get("places", ""))
+		if places != "" and not _by_name.has(places):
+			_validation_errors.append("Item %s places unknown block '%s'" % [key, places])
+	for err in _validation_errors:
+		push_error("BlockDB: " + err)
+
+
+func validation_errors() -> Array[String]:
+	return _validation_errors.duplicate()
+
+
 func get_block(name: String) -> Dictionary:
 	return _by_name.get(name, {})
 
 
 func get_block_by_id(id: int) -> Dictionary:
 	return _by_id.get(id, {})
+
+
+func get_item(name: String) -> Dictionary:
+	if _items.has(name):
+		return _items[name]
+	if _by_name.has(name):
+		return _by_name[name]
+	return {}
+
+
+func has_item(name: String) -> bool:
+	return _items.has(name) or (_by_name.has(name) and int(_by_name[name].get("id", 0)) > 0)
 
 
 func get_id(name: String) -> int:
@@ -75,6 +117,10 @@ func get_drop(id: int) -> String:
 	return str(get_block_by_id(id).get("drop", ""))
 
 
+func get_hardness(id: int) -> float:
+	return float(get_block_by_id(id).get("hardness", 1.0))
+
+
 func display_name(item: String) -> String:
 	if _by_name.has(item):
 		return str(_by_name[item].get("display_name", item))
@@ -83,10 +129,30 @@ func display_name(item: String) -> String:
 	return item
 
 
+func max_stack(item: String) -> int:
+	if _items.has(item):
+		return int(_items[item].get("max_stack", 64))
+	if _by_name.has(item):
+		return int(_by_name[item].get("max_stack", 64))
+	return 64
+
+
 func is_placeable(item: String) -> bool:
 	if _by_name.has(item) and int(_by_name[item].get("id", 0)) > 0:
 		return true
+	if _items.has(item):
+		var places := str(_items[item].get("places", ""))
+		return places != "" and _by_name.has(places)
 	return false
+
+
+func place_block_id(item: String) -> int:
+	if _by_name.has(item):
+		return int(_by_name[item].get("id", 0))
+	if _items.has(item):
+		var places := str(_items[item].get("places", ""))
+		return get_id(places)
+	return 0
 
 
 func all_placeable_names() -> Array[String]:
@@ -116,6 +182,10 @@ func get_face_uv(block_id: int, face: String) -> Rect2:
 
 
 func icon_texture(item: String) -> Texture2D:
+	# Procedural pixel icons for tools / non-block items first
+	var drawn: Texture2D = ItemIconsScr.texture_for(item)
+	if drawn != null:
+		return drawn
 	if _by_name.has(item):
 		var texs: Dictionary = _by_name[item].get("textures", {})
 		var file := str(texs.get("all", texs.get("side", texs.get("top", ""))))
@@ -123,13 +193,17 @@ func icon_texture(item: String) -> Texture2D:
 			var path := TEXTURE_DIR + file
 			if ResourceLoader.exists(path):
 				return load(path)
-	# colored placeholder for non-block items
+	# Last resort: lightly patterned color (should be rare)
 	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
 	var col := Color(0.7, 0.55, 0.3)
 	if _items.has(item):
 		var arr = _items[item].get("icon_color", [0.7, 0.55, 0.3])
 		col = Color(arr[0], arr[1], arr[2])
 	img.fill(col)
+	for y in 32:
+		for x in 32:
+			if ((x + y) % 4) == 0:
+				img.set_pixel(x, y, col.darkened(0.12))
 	return ImageTexture.create_from_image(img)
 
 
