@@ -42,6 +42,15 @@ var mode_select_panel: Control
 var mining_bar: ProgressBar
 var hearts_bar: HeartsBar
 var hurt_flash: ColorRect
+var tutorial: TutorialDirector
+var tutorial_card: PanelContainer
+var tutorial_count: Label
+var tutorial_title: Label
+var tutorial_body: Label
+var tutorial_skip_btn: Button
+var tips_panel: PanelContainer
+var tips_list: VBoxContainer
+var tips_resume_btn: Button
 var hint_label: Label
 
 var _toast_timer := 0.0
@@ -315,6 +324,7 @@ func _build_ui() -> void:
 		["Home", func(): if player: player.reset_to_spawn(), COL_ACCENT],
 		["Settings", open_settings, COL_ACCENT],
 		[view_btn, null, null],
+		["Tips", open_tips, COL_PINK],
 		["Reset…", request_reset, COL_ACCENT],
 		["Title Screen", go_to_title, COL_ACCENT],
 	]:
@@ -327,10 +337,11 @@ func _build_ui() -> void:
 		b.pressed.connect(spec[1])
 		menu_grid.add_child(b)
 	var close_btn := Button.new()
+	close_btn.name = "CloseMenu"
 	close_btn.text = "Close"
-	_theme_button(close_btn, Vector2(440, 52), COL_GREEN)
+	_theme_button(close_btn, Vector2(214, 52), COL_GREEN)
 	close_btn.pressed.connect(toggle_menu)
-	menu_v.add_child(close_btn)
+	menu_grid.add_child(close_btn)
 	_refresh_view_btn()
 
 	confirm_panel = _make_panel(_root, "Reset world?", Vector2(380, 220))
@@ -369,6 +380,8 @@ func _build_ui() -> void:
 	_build_fly_controls()
 	_build_mining_bar()
 	_build_hearts()
+	_build_tutorial_card()
+	_build_tips_panel()
 	_build_mode_select()
 	_build_hint_label()
 
@@ -893,9 +906,11 @@ func _on_creative(enabled: bool) -> void:
 	mode_btn.add_theme_stylebox_override("hover", _sb(bg.lightened(0.08), 18, Color(1, 1, 1, 0.95), 3))
 	mode_btn.add_theme_stylebox_override("pressed", _sb(bg.darkened(0.1), 18, COL_INK, 4))
 	if hint_label:
-		hint_label.visible = not enabled
+		hint_label.visible = not enabled and tutorial == null
 		if not enabled:
 			hint_label.text = "Punch trees · craft tools · dig stone"
+	if tutorial:
+		show_tutorial_step(tutorial.model.current() if tutorial.active() else {})
 	if hearts_bar:
 		hearts_bar.visible = not enabled
 	refresh_hotbar()
@@ -985,6 +1000,178 @@ func _build_hearts() -> void:
 	hearts_bar.offset_bottom = 22 + HeartsBar.HEART
 	hearts_bar.visible = GameState.is_survival()
 	_root.add_child(hearts_bar)
+
+
+func _tut_label(size: int, wrap := false) -> Label:
+	var l := Label.new()
+	l.add_theme_color_override("font_color", COL_INK)
+	if _font:
+		l.add_theme_font_override("font", _font)
+		l.add_theme_font_size_override("font_size", size)
+	if wrap:
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+
+func _build_tutorial_card() -> void:
+	tutorial_card = PanelContainer.new()
+	tutorial_card.name = "TutorialCard"
+	tutorial_card.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	tutorial_card.offset_left = 12
+	tutorial_card.offset_top = 84
+	tutorial_card.offset_right = 12 + 320
+	tutorial_card.custom_minimum_size = Vector2(320, 0)
+	tutorial_card.mouse_filter = Control.MOUSE_FILTER_PASS
+	tutorial_card.add_theme_stylebox_override("panel", _sb(Color(COL_PANEL, 0.94), 18, COL_PINK, 3))
+	tutorial_card.visible = false
+	_root.add_child(tutorial_card)
+	var m := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + side, 12)
+	tutorial_card.add_child(m)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	m.add_child(v)
+	var head := HBoxContainer.new()
+	v.add_child(head)
+	tutorial_count = _tut_label(15)
+	tutorial_count.name = "Count"
+	tutorial_count.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tutorial_count.add_theme_color_override("font_color", COL_INK.lightened(0.25))
+	head.add_child(tutorial_count)
+	tutorial_skip_btn = Button.new()
+	tutorial_skip_btn.name = "SkipTutorial"
+	tutorial_skip_btn.text = "Skip tips"
+	_theme_button(tutorial_skip_btn, Vector2(96, 34), COL_ACCENT)
+	if _font:
+		tutorial_skip_btn.add_theme_font_size_override("font_size", 15)
+	tutorial_skip_btn.pressed.connect(skip_tutorial)
+	head.add_child(tutorial_skip_btn)
+	tutorial_title = _tut_label(21)
+	tutorial_title.name = "Title"
+	v.add_child(tutorial_title)
+	tutorial_body = _tut_label(17, true)
+	tutorial_body.name = "Body"
+	tutorial_body.custom_minimum_size = Vector2(296, 0)
+	v.add_child(tutorial_body)
+
+
+func _build_tips_panel() -> void:
+	tips_panel = _make_panel(_root, "Tips", Vector2(460, 440))
+	tips_panel.name = "TipsPanel"
+	tips_panel.visible = false
+	var v: VBoxContainer = tips_panel.get_node("Margin/VBox")
+	tips_list = VBoxContainer.new()
+	tips_list.name = "Steps"
+	tips_list.add_theme_constant_override("separation", 2)
+	v.add_child(tips_list)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	v.add_child(row)
+	tips_resume_btn = Button.new()
+	tips_resume_btn.name = "ResumeTips"
+	_theme_button(tips_resume_btn, Vector2(200, 52), COL_GREEN)
+	tips_resume_btn.pressed.connect(func():
+		if tutorial:
+			tutorial.model.resume()
+		panels.close("tips")
+		_restore_play_mouse())
+	row.add_child(tips_resume_btn)
+	var restart := Button.new()
+	restart.name = "RestartTips"
+	restart.text = "Start over"
+	_theme_button(restart, Vector2(200, 52), COL_ACCENT)
+	restart.pressed.connect(func():
+		if tutorial:
+			tutorial.model.restart()
+		panels.close("tips")
+		_restore_play_mouse())
+	row.add_child(restart)
+	var close := Button.new()
+	close.text = "Close"
+	_theme_button(close, Vector2(410, 52), COL_ACCENT)
+	close.pressed.connect(func(): panels.close("tips"))
+	v.add_child(close)
+	panels.register("tips", tips_panel)
+
+
+func bind_tutorial(director: TutorialDirector) -> void:
+	tutorial = director
+	director.model.current_changed.connect(func(step): show_tutorial_step(step if director.active() else {}))
+
+
+func show_tutorial_step(step: Dictionary) -> void:
+	if tutorial_card == null:
+		return
+	if hint_label:
+		hint_label.visible = GameState.is_survival() and tutorial == null
+	if step.is_empty() or not GameState.is_survival():
+		tutorial_card.visible = false
+		return
+	var model := tutorial.model
+	tutorial_count.text = "Tip %d of %d" % [model.current_index() + 1, Tutorial.STEPS.size()]
+	tutorial_title.text = str(step["title"])
+	tutorial_body.text = model.text_for(step)
+	tutorial_card.visible = true
+
+
+func celebrate_tutorial_step(index: int, total: int) -> void:
+	_play_ui_sfx("res://assets/audio/interface/confirmation_001.ogg")
+	if index >= total:
+		GameState.toast("Tutorial complete! You're a CozyBlocks explorer.")
+	else:
+		GameState.toast("Nice! Step done.")
+	if tutorial_card and tutorial_card.visible:
+		tutorial_card.pivot_offset = tutorial_card.size * 0.5
+		var tw := tutorial_card.create_tween()
+		tw.tween_property(tutorial_card, "scale", Vector2(1.06, 1.06), 0.09)
+		tw.tween_property(tutorial_card, "scale", Vector2.ONE, 0.14)
+
+
+func skip_tutorial() -> void:
+	if tutorial:
+		tutorial.model.skip()
+	GameState.toast("Tips hidden. Find them again in Menu → Tips.")
+
+
+func open_tips() -> void:
+	panels.close_all()
+	_refresh_tips_list()
+	panels.open("tips")
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _refresh_tips_list() -> void:
+	for c in tips_list.get_children():
+		c.queue_free()
+	var model: Tutorial = tutorial.model if tutorial else null
+	for s in Tutorial.STEPS:
+		var l := _tut_label(19)
+		var ok := model != null and model.is_done(s["id"])
+		l.text = ("✓  " if ok else "•  ") + str(s["title"])
+		l.modulate = Color(1, 1, 1, 0.6) if ok else Color.WHITE
+		tips_list.add_child(l)
+	if model == null or not GameState.is_survival():
+		tips_resume_btn.text = "Survival only"
+		tips_resume_btn.disabled = true
+	elif model.is_finished():
+		tips_resume_btn.text = "All done!"
+		tips_resume_btn.disabled = true
+	else:
+		tips_resume_btn.text = "Show tips"
+		tips_resume_btn.disabled = false
+
+
+func _play_ui_sfx(path: String) -> void:
+	if not ResourceLoader.exists(path):
+		return
+	var p := AudioStreamPlayer.new()
+	p.stream = load(path)
+	p.volume_db = -8.0
+	add_child(p)
+	p.finished.connect(p.queue_free)
+	p.play()
 
 
 func _build_mining_bar() -> void:
@@ -1186,7 +1373,8 @@ func save_game() -> void:
 	if scene and scene.has_method("save_now") and scene.autosave_enabled:
 		ok = scene.save_now()
 	elif player:
-		ok = SaveGame.save_world(player.world, player.inventory)
+		var state: Dictionary = scene.player_state() if scene and scene.has_method("player_state") else {}
+		ok = SaveGame.save_world(player.world, player.inventory, state)
 	GameState.toast("Saved!" if ok else "Save failed")
 
 
@@ -1204,6 +1392,8 @@ func go_to_title() -> void:
 func load_game() -> void:
 	if player and SaveGame.load_world(player.world, player.inventory):
 		player.reset_to_spawn()
+		if tutorial:
+			tutorial.load_state(SaveGame.saved_player_state().get("tutorial", {}))
 		refresh_hotbar()
 		GameState.toast("Loaded!")
 	else:

@@ -11,6 +11,7 @@ var autosave_enabled := false
 var _autosave_timer: Timer
 
 var creatures: CreatureManager
+var tutorial: TutorialDirector
 
 
 func _ready() -> void:
@@ -19,6 +20,9 @@ func _ready() -> void:
 	creatures.setup(world, player)
 	add_child(creatures)
 	player.creatures = creatures
+	tutorial = TutorialDirector.new()
+	tutorial.setup(player, creatures, ui)
+	add_child(tutorial)
 	_setup_environment()
 	var dresser := MeadowDresser.new()
 	dresser.dress(self)
@@ -108,6 +112,7 @@ func _start_session(intent: Dictionary) -> void:
 		if kind == "continue":
 			_restore_saved_pose()
 		player.ensure_not_stuck()
+		tutorial.load_state(SaveGame.saved_player_state().get("tutorial", {}))
 	elif SaveGame.save_exists():
 		# Damaged save: keep a backup, never overwrite it silently.
 		var backup := SaveGame.quarantine()
@@ -142,7 +147,10 @@ func _restore_saved_pose() -> void:
 
 func player_state() -> Dictionary:
 	var p := player.global_position
-	return {"pos": [p.x, p.y, p.z], "yaw": player.look_yaw, "pitch": player.look_pitch, "health": player.health.to_dict()}
+	return {
+		"pos": [p.x, p.y, p.z], "yaw": player.look_yaw, "pitch": player.look_pitch,
+		"health": player.health.to_dict(), "tutorial": tutorial.state(),
+	}
 
 
 ## Writes the session save. No-op outside title-screen sessions.

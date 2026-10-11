@@ -1,5 +1,5 @@
 extends Node
-## Screenshots of bunnies, a slime and the hearts HUD in Survival.
+## Screenshots of bunnies, a slime, the hearts HUD, the tutorial card and Tips in Survival.
 ## COZY_CREATURE_SHOTS=1 COZY_SHOT_DIR=/tmp/cozy_shots COZY_SKIP_MODE_SELECT=1 \
 ##   godot --path . --resolution 1280x720 res://scenes/world/main.tscn
 
@@ -29,6 +29,17 @@ func _ready() -> void:
 	for i in 90:
 		await get_tree().process_frame
 	_shot(dir + "/creatures_survival.png")
+	var ui: GameUi = main.get_node("GameUI")
+	main.tutorial.model.on_event("harvest", "log", "wood")
+	ui.open_tips()
+	for i in 20:
+		await get_tree().process_frame
+	_shot(dir + "/tutorial_tips.png")
+	ui.panels.close_all()
+	ui.toggle_menu()
+	for i in 20:
+		await get_tree().process_frame
+	_shot(dir + "/menu_survival.png")
 	get_tree().quit(0)
 
 
