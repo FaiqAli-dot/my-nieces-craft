@@ -101,6 +101,8 @@ func _test_migrations() -> void:
 	var src := {"schema_version": 1, "creative": true, "world": {"chunks": {}}}
 	SaveGame.migrate(src)
 	check(not src.has("game_mode"), "migrate does not mutate its input")
+	var odd := SaveGame.migrate({"creative": "yes", "world": {"chunks": {}}})
+	check(odd["game_mode"] == "creative", "v1 with a non-boolean creative flag falls back to Creative")
 	_write_raw(JSON.stringify({"creative": false, "world": {"chunks": {}}}))
 	check(SaveGame.inspect()["mode"] == "Survival", "v1 file shows as Survival on the title screen")
 	SaveGame.delete_save()

@@ -22,6 +22,7 @@ func run() -> void:
 	_test_device_text()
 	OS.set_environment("COZY_SKIP_MODE_SELECT", "1")
 	await _test_meadow_session()
+	await _test_pre_upgrade_save()
 	OS.set_environment("COZY_SKIP_MODE_SELECT", prev_skip)
 	SaveGame.delete_save()
 	GameState.set_game_mode(prev_mode)
@@ -246,3 +247,45 @@ func _test_meadow_session() -> void:
 	ui = cmain.get_node("GameUI")
 	check(not ui.tutorial_card.visible, "a Creative world has no tutorial card")
 	await _end_meadow(cmain)
+
+
+## A schema-3 Survival save from before this upgrade: full v2 chunk dump,
+## pose without health or tutorial state, and a pickaxe already in the bag.
+func _test_pre_upgrade_save() -> void:
+	var w: VoxelWorld = runner._make_world()
+	await get_tree().process_frame
+	w.generate_flat_world()
+	var bytes: PackedByteArray = (w.chunks[Vector3i(1, 0, 1)] as VoxelChunk).to_bytes()
+	bytes[0] = BlockDB.get_id("brick")
+	w.queue_free()
+	var inv := Inventory.new(false)
+	inv.add_item("wooden_pickaxe", 1)
+	inv.add_item("dirt", 7)
+	var old := {
+		"schema_version": 3, "saved_at": 1700000000, "game_mode": "survival", "difficulty": "normal",
+		"creative": false, "world": {"version": 2, "chunks": {"1,0,1": Marshalls.raw_to_base64(bytes)}},
+		"inventory": inv.to_dict(), "drops": [],
+		"player": {"pos": [32.5, VoxelWorld.GROUND_Y + 1.05, 36.5], "yaw": 0.5, "pitch": 0.0},
+	}
+	var f := FileAccess.open(SaveGame.save_path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(old))
+	f.close()
+	check(int(SaveGame.inspect()["status"]) == SaveGame.Status.OK, "a schema-3 save is accepted")
+	var main := await _spawn_meadow({"kind": "continue"})
+	var player: PlayerController = main.get_node("Player")
+	var world: VoxelWorld = main.get_node("VoxelWorld")
+	var ui: GameUi = main.get_node("GameUI")
+	check(GameState.is_survival() and player.inventory.count_of("dirt") == 7, "old Survival save keeps mode and bag")
+	check(world.get_block(16, 0, 16) == BlockDB.get_id("brick"), "old edits survive the world upgrade")
+	check(absf(player.global_position.x - 32.5) < 0.01 and absf(player.global_position.z - 36.5) < 0.01, "old pose restored")
+	check(player.health.enabled and player.health.hp == Health.MAX_HP, "old save without health starts with full hearts")
+	check(main.tutorial.model.current()["id"] == "stone", "tutorial skips steps the bag shows are done")
+	check(ui.tutorial_card.visible and ui.tutorial_title.text == "Dig some stone", "card shows the next real step")
+	check(main.save_now(), "upgraded world saves")
+	var saved: Variant = JSON.parse_string(FileAccess.get_file_as_string(SaveGame.save_path))
+	check(int(saved["schema_version"]) == SaveGame.SCHEMA_VERSION, "save is rewritten at the current schema")
+	check(int(saved["world"]["version"]) == VoxelWorld.WORLD_DATA_VERSION and saved["world"].has("seed"), "world data upgraded to v3")
+	check((saved["world"]["chunks"] as Dictionary).has("1,0,1"), "old edited chunk kept in the new save")
+	check(saved["player"].has("health") and saved["player"].has("tutorial"), "player state gains health and tutorial")
+	await _end_meadow(main)
+	SaveGame.delete_save()

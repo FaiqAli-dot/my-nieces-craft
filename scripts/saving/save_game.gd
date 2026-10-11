@@ -7,7 +7,9 @@ class_name SaveGame
 ##   2 — adds game_mode ("creative"/"survival"), difficulty, drops
 ##   3 — adds saved_at and the player's pose
 ##   4 — world data v3: biome world from a seed, only edited chunks stored;
-##       player state gains health. Older builds must refuse these saves.
+##       player state gains health and tutorial progress (both optional;
+##       missing means full hearts / tutorial synced from the bag).
+##       Older builds must refuse these saves.
 
 const SAVE_PATH := "user://cozyblocks_world.json"
 const SCHEMA_VERSION := 4
@@ -170,8 +172,8 @@ static func _resolve_mode(data: Dictionary) -> int:
 		if gm == "survival" or gm == "limited":
 			return GameState.Mode.SURVIVAL
 		return GameState.Mode.CREATIVE
-	if data.has("creative"):
-		return GameState.Mode.CREATIVE if bool(data["creative"]) else GameState.Mode.SURVIVAL
+	if typeof(data.get("creative")) == TYPE_BOOL:
+		return GameState.Mode.CREATIVE if data["creative"] else GameState.Mode.SURVIVAL
 	return GameState.Mode.CREATIVE
 
 
