@@ -62,7 +62,7 @@ func _run_offline() -> void:
 		# Desktop confirm: Catalog pick + E key (interact).
 		await _place_via_catalog_and_key("wardrobe", Vector2i(1, 1), KEY_E, "offline %s wardrobe via E" % tier)
 		# Invalid overlap should toast reason and keep count.
-		var before := _world._furniture.size()
+		var before: int = _world._furniture.size()
 		await _pick_catalog("chair")
 		_world.placement._anchor = Vector2i(2, 2) # overlaps bed
 		_world.placement._last_reason = FurnitureValidator.Reason.OVERLAP
@@ -153,7 +153,7 @@ func _aim_valid(cell: Vector2i) -> void:
 
 func _place_via_catalog_and_place_btn(def_id: String, cell: Vector2i, label: String) -> void:
 	var ui: HouseUi = _world.ui
-	var before := _world._furniture.size()
+	var before: int = _world._furniture.size()
 	await _pick_catalog(def_id)
 	_aim_valid(cell)
 	ui.place_btn.pressed.emit()
@@ -164,7 +164,7 @@ func _place_via_catalog_and_place_btn(def_id: String, cell: Vector2i, label: Str
 
 
 func _place_via_catalog_and_key(def_id: String, cell: Vector2i, keycode: Key, label: String) -> void:
-	var before := _world._furniture.size()
+	var before: int = _world._furniture.size()
 	await _pick_catalog(def_id)
 	_aim_valid(cell)
 	var ev := InputEventKey.new()
@@ -239,8 +239,8 @@ func _run_online() -> void:
 
 func _place_online_via_ui(def_id: String, cell: Vector2i, label: String) -> void:
 	var ui: HouseUi = _world.ui
-	var before_rev := NetClient.revision
-	var before_count := _world._furniture.size()
+	var before_rev: int = NetClient.revision
+	var before_count: int = _world._furniture.size()
 	await _pick_catalog(def_id)
 	_aim_valid(cell)
 	ui.place_btn.pressed.emit()
