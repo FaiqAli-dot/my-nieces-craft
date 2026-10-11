@@ -33,6 +33,7 @@ func _ready() -> void:
 	await _scenario_invite_invalid_expired_revoked()
 	await _scenario_capacity_limit()
 	await _scenario_house_size_sync()
+	await _scenario_walls_and_doors()
 
 	print("=== MP Results: %d passed, %d failed ===" % [passed, failed])
 	if OS.get_environment("COZY_MP_TEST_QUIT") == "1":
@@ -415,5 +416,86 @@ func _scenario_house_size_sync() -> void:
 	var house_id := str(sa.get("p", {}).get("house", {}).get("house_id", ""))
 	var reloaded := HouseStore.new(_data_dir).load_house(house_id)
 	_assert(reloaded != null and reloaded.size_tier == HouseLayout.SIZE_MEDIUM, "size persisted after restart load")
+	await _close(a)
+	await _close(b)
+
+
+func _scenario_walls_and_doors() -> void:
+	print("-- walls + doors sync --")
+	var a := await _connect_client()
+	var b := await _connect_client()
+	await _hello(a, "alice_walls", "Alice")
+	await _hello(b, "bob_walls", "Bob")
+	_send(a, NetProtocol.C_ENTER_OWN)
+	var sa := await _wait_type(a, NetProtocol.S_HOUSE_STATE, 2.0)
+	var house: Dictionary = sa.get("p", {}).get("house", {})
+	var house_id := str(house.get("house_id", ""))
+	var rev := int(house.get("revision", 0))
+	_send(b, NetProtocol.C_JOIN_INVITE, {"code": str(house.get("invite_code", ""))})
+	await _wait_type(b, NetProtocol.S_HOUSE_STATE, 2.0)
+	_drain(a)
+
+	# Visitor cannot build (collab off).
+	_send(b, NetProtocol.C_STRUCT_SET, {"edge": "v:6:3", "kind": "wall", "revision": rev}, "wall_b1")
+	var denied := await _wait_type(b, NetProtocol.S_ERROR, 2.0)
+	_assert(str(denied.get("p", {}).get("code", "")) == "no_permission", "visitor wall build denied")
+
+	# Owner builds an interior wall → both peers get the same walls.
+	_send(a, NetProtocol.C_STRUCT_SET, {"edge": "v:6:3", "kind": "wall", "revision": rev}, "wall_a1")
+	var wa := await _wait_type(a, NetProtocol.S_STRUCT_CHANGED, 2.0)
+	var wb := await _wait_type(b, NetProtocol.S_STRUCT_CHANGED, 2.0)
+	_assert(str(wa.get("p", {}).get("kind", "")) == "wall", "owner wall built")
+	_assert(wb.get("p", {}).get("walls", {}).get("v:6:3", "") == "wall", "visitor sees new wall")
+	rev = int(wa.get("p", {}).get("revision", rev + 1))
+
+	# Duplicate op id is ignored.
+	_send(a, NetProtocol.C_STRUCT_SET, {"edge": "v:6:3", "kind": "", "revision": rev}, "wall_a1")
+	var dup := await _wait_type(a, NetProtocol.S_ERROR, 2.0)
+	_assert(str(dup.get("p", {}).get("code", "")) == "duplicate_op", "duplicate wall op rejected")
+
+	# Visitor may open the front door; revision is unchanged so the owner's
+	# next edit is not stale.
+	var door := HouseStructure.default_door_edges(12)[0]
+	_send(b, NetProtocol.C_DOOR_TOGGLE, {"edge": door}, "door_b1")
+	var da := await _wait_type(a, NetProtocol.S_STRUCT_CHANGED, 2.0)
+	_assert(str(da.get("p", {}).get("kind", "")) == HouseStructure.DOOR_OPEN, "visitor opened door, owner synced")
+	_assert(int(da.get("p", {}).get("revision", -1)) == rev, "door toggle keeps revision")
+	_send(b, NetProtocol.C_DOOR_TOGGLE, {"edge": "v:6:3"}, "door_b2")
+	var nd := await _wait_type(b, NetProtocol.S_ERROR, 2.0)
+	_assert(not nd.is_empty(), "toggling a wall as a door rejected")
+	await get_tree().create_timer(0.3).timeout
+	_drain(a)
+	_send(a, NetProtocol.C_STRUCT_SET, {"edge": "h:2:0", "kind": "window", "revision": rev}, "wall_a2")
+	var win := await _wait_type(a, NetProtocol.S_STRUCT_CHANGED, 2.0)
+	_assert(str(win.get("p", {}).get("kind", "")) == "window", "owner edit after door toggle not stale")
+	rev = int(win.get("p", {}).get("revision", rev + 1))
+
+	# Walling up every exit is refused.
+	await get_tree().create_timer(1.1).timeout
+	_drain(a)
+	var exits: Array = []
+	for e in HouseStructure.perimeter_edges(12):
+		var k := HouseStructure.kind_at(_server.store.load_house(house_id).walls, e, 12)
+		if k == "" or HouseStructure.is_door(k):
+			exits.append(e)
+	_assert(exits.size() == 2, "two default exits (double door)")
+	_send(a, NetProtocol.C_STRUCT_SET, {"edge": exits[0], "kind": "wall", "revision": rev}, "wall_a3")
+	var w3 := await _wait_type(a, NetProtocol.S_STRUCT_CHANGED, 2.0)
+	rev = int(w3.get("p", {}).get("revision", rev + 1))
+	_send(a, NetProtocol.C_STRUCT_SET, {"edge": exits[1], "kind": "wall", "revision": rev}, "wall_a4")
+	var last := await _wait_type(a, NetProtocol.S_ERROR, 2.0)
+	_assert(str(last.get("p", {}).get("message", "")) == HouseStructure.reason_text(HouseStructure.Reason.LAST_EXIT), "last exit protected")
+
+	# Furniture can't block the remaining doorway.
+	var inside := HouseStructure.adjacent_cells(exits[1])[0]
+	_send(a, NetProtocol.C_FURN_PLACE, {"def_id": "chair", "cell_x": inside.x, "cell_z": inside.y, "rotation": 0, "revision": rev}, "door_chair")
+	var blocked := await _wait_type(a, NetProtocol.S_ERROR, 2.0)
+	_assert(str(blocked.get("p", {}).get("message", "")) == FurnitureValidator.reason_text(FurnitureValidator.Reason.DOORWAY), "doorway kept clear")
+
+	# Persisted for a restarted server.
+	var reloaded := HouseStore.new(_data_dir).load_house(house_id)
+	_assert(reloaded.walls.get("v:6:3", "") == "wall" and reloaded.walls.get("h:2:0", "") == "window", "walls persisted")
+	_assert(exits[0] == door and HouseStructure.kind_at(reloaded.walls, door, 12) == HouseStructure.WALL, "walled-up door persisted")
+	_assert(HouseStructure.kind_at(reloaded.walls, exits[1], 12) == HouseStructure.DOOR, "remaining door persisted")
 	await _close(a)
 	await _close(b)

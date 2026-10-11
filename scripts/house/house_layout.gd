@@ -4,9 +4,13 @@ class_name HouseLayout
 ##
 ## Size tiers (Small / Medium / Large) are a kid-friendly step design — one tap
 ## grows or shrinks the whole room on a fixed grid, with server validation so
-## furniture is never orphaned. Freeform wall editing is deferred.
+## furniture and built walls are never orphaned. Walls/doors/windows live in
+## `walls` (see HouseStructure); the garden yard surrounds the house.
 
-const SCHEMA_VERSION := 2
+## v3 adds `walls`; v1/v2 records load with the default walls + east door.
+const SCHEMA_VERSION := 3
+## Garden yard around the house, in cells, on every side.
+const GARDEN_MARGIN := 7
 const SIZE_SMALL := "small"
 const SIZE_MEDIUM := "medium"
 const SIZE_LARGE := "large"
@@ -42,6 +46,11 @@ var room_max: Vector2i = DEFAULT_ROOM_MAX
 var capacity: int = DEFAULT_CAPACITY
 var display_name: String = "Cozy House"
 var size_tier: String = DEFAULT_SIZE_TIER
+var walls: Dictionary = {}
+
+
+func cells() -> int:
+	return cells_for_tier(size_tier)
 
 
 func to_dict() -> Dictionary:
@@ -62,6 +71,7 @@ func to_dict() -> Dictionary:
 		"capacity": capacity,
 		"display_name": display_name,
 		"size_tier": size_tier,
+		"walls": walls.duplicate(),
 	}
 
 
@@ -134,11 +144,15 @@ static func from_dict(data: Dictionary) -> HouseLayout:
 		h.size_tier = tier_for_room_max(h.room_max)
 	h.apply_size_tier(h.size_tier, false)
 	h._sanitize_furniture()
+	h.walls = HouseStructure.sanitize(data.get("walls", {}), h.cells())
 	return h
 
 
 func apply_size_tier(tier: String, rewrite_bounds: bool = true) -> void:
+	var old_cells := cells()
 	size_tier = normalize_size_tier(tier)
+	if old_cells != cells():
+		walls = HouseStructure.on_resize(walls, old_cells, cells())
 	if rewrite_bounds:
 		var cells := cells_for_tier(size_tier)
 		room_min = Vector2i(0, 0)
@@ -171,6 +185,8 @@ func can_apply_size_tier(tier: String) -> String:
 	var need := furniture_max_cell()
 	if need.x >= cells or need.y >= cells:
 		return "Move furniture closer before making the house smaller"
+	if HouseStructure.blocks_resize(walls, cells):
+		return "Remove walls you built in the extra space first"
 	return ""
 
 
@@ -181,14 +197,15 @@ func spawn_position() -> Vector3:
 
 
 func move_bounds() -> Dictionary:
-	## Soft clamp for networked player positions (with a little outdoor apron).
+	## Soft clamp for networked player positions (house + garden yard).
 	var cells := cells_for_tier(size_tier)
 	var size := float(cells) * FurnitureGrid.CELL_SIZE
+	var g := float(GARDEN_MARGIN) * FurnitureGrid.CELL_SIZE
 	return {
-		"min_x": -1.0,
-		"max_x": size + 2.0,
-		"min_z": -1.0,
-		"max_z": size + 1.0,
+		"min_x": -g,
+		"max_x": size + g,
+		"min_z": -g,
+		"max_z": size + g,
 		"min_y": 0.0,
 		"max_y": HouseSpace.WALL_H + 0.5,
 	}

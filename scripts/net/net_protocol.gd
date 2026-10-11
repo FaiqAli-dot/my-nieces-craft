@@ -20,6 +20,8 @@ const C_REQUEST_INVITE := "request_invite"
 const C_REVOKE_INVITE := "revoke_invite"
 const C_ROTATE_INVITE := "rotate_invite"
 const C_SET_OWNER := "set_owner" ## always rejected — ownership is server-bound
+const C_STRUCT_SET := "struct_set" ## build/remove a wall, window or door
+const C_DOOR_TOGGLE := "door_toggle" ## open/close (any member)
 const C_PING := "ping"
 
 # Server → client
@@ -36,6 +38,7 @@ const S_HOUSE_SIZE_CHANGED := "house_size_changed"
 const S_INVITE := "invite"
 const S_PONG := "pong"
 const S_LEFT_HOUSE := "left_house"
+const S_STRUCT_CHANGED := "struct_changed" ## full walls dict + changed edge
 
 
 static func pack(type: String, payload: Dictionary = {}, op_id: String = "") -> String:

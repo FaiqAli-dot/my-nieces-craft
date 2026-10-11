@@ -14,6 +14,8 @@ enum Reason {
 	DUPLICATE_OP,
 	RATE_LIMIT,
 	INVALID_PAYLOAD,
+	WALL_IN_WAY,
+	DOORWAY,
 }
 
 
@@ -42,6 +44,10 @@ static func reason_text(r: int) -> String:
 			return "Slow down a little"
 		Reason.INVALID_PAYLOAD:
 			return "That didn't work — try again"
+		Reason.WALL_IN_WAY:
+			return "A wall is in the way"
+		Reason.DOORWAY:
+			return "Keep the doorway clear"
 		_:
 			return "Can't place there"
 
@@ -53,8 +59,11 @@ static func validate_placement(
 	room_min: Vector2i,
 	room_max: Vector2i,
 	occupied: Dictionary,
-	ignore_instance_id: String = ""
+	ignore_instance_id: String = "",
+	walls: Dictionary = {},
+	house_cells: int = 0
 ) -> int:
+	## house_cells > 0 also checks walls/doors (HouseStructure); 0 skips them.
 	if not FurnitureDB.has_id(def_id):
 		return Reason.UNKNOWN_DEF
 	var fp: Vector2i = FurnitureDB.footprint(def_id)
@@ -68,6 +77,11 @@ static func validate_placement(
 			var owner_id := str(occupied[key])
 			if owner_id != "" and owner_id != ignore_instance_id:
 				return Reason.OVERLAP
+	match HouseStructure.furniture_conflict(walls, house_cells, cells):
+		HouseStructure.Reason.FURNITURE_IN_WAY:
+			return Reason.WALL_IN_WAY
+		HouseStructure.Reason.DOORWAY_BLOCKED:
+			return Reason.DOORWAY
 	return Reason.OK
 
 

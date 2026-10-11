@@ -50,6 +50,7 @@ func _ready() -> void:
 	await _run_suite("res://tests/suites/net_reconnect_suite.gd")
 	await _run_suite("res://tests/suites/tree_suite.gd")
 	await _run_suite("res://tests/suites/character_suite.gd")
+	await _run_suite("res://tests/suites/house_structure_suite.gd")
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
 	_cleanup_user_test_data()
 	get_tree().quit(1 if failed > 0 else 0)
@@ -446,7 +447,8 @@ func _test_house_persistence() -> void:
 	}
 	var migrated := HouseLayout.from_dict(legacy)
 	_assert(migrated.size_tier == HouseLayout.SIZE_SMALL, "v1 migrate → Small")
-	_assert(int(migrated.to_dict().get("schema", 0)) == 2, "migrated save writes schema 2")
+	_assert(int(migrated.to_dict().get("schema", 0)) == HouseLayout.SCHEMA_VERSION and HouseLayout.SCHEMA_VERSION == 3, "migrated save writes current schema (3)")
+	_assert(migrated.walls.is_empty() and HouseStructure.kind_at(migrated.walls, "v:12:5", 12) == HouseStructure.DOOR, "v1 migrate keeps default walls + east door")
 	await get_tree().process_frame
 
 

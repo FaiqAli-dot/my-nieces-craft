@@ -128,6 +128,10 @@ func _handle_raw(peer_id: int, text: String) -> void:
 			_on_revoke_invite(peer_id)
 		NetProtocol.C_ROTATE_INVITE:
 			_on_rotate_invite(peer_id)
+		NetProtocol.C_STRUCT_SET:
+			_on_struct_set(peer_id, p, op)
+		NetProtocol.C_DOOR_TOGGLE:
+			_on_door_toggle(peer_id, p, op)
 		NetProtocol.C_SET_OWNER:
 			_send_error(peer_id, "ownership cannot be changed by clients", "no_permission")
 		NetProtocol.C_PING:
@@ -356,7 +360,7 @@ func _on_furn_place(peer_id: int, p: Dictionary, op: String) -> void:
 		return
 	var occupied := FurnitureValidator.build_occupied_map(house.furniture)
 	var reason := FurnitureValidator.validate_placement(
-		def_id, cell, rot, house.room_min, house.room_max, occupied
+		def_id, cell, rot, house.room_min, house.room_max, occupied, "", house.walls, house.cells()
 	)
 	if reason != FurnitureValidator.Reason.OK:
 		_send_error(peer_id, FurnitureValidator.reason_text(reason), "reject")
@@ -401,7 +405,7 @@ func _on_furn_move(peer_id: int, p: Dictionary, op: String) -> void:
 		return
 	var occupied := FurnitureValidator.build_occupied_map(house.furniture)
 	var reason := FurnitureValidator.validate_placement(
-		str(inst["def_id"]), cell, rot, house.room_min, house.room_max, occupied, iid
+		str(inst["def_id"]), cell, rot, house.room_min, house.room_max, occupied, iid, house.walls, house.cells()
 	)
 	if reason != FurnitureValidator.Reason.OK:
 		_send_error(peer_id, FurnitureValidator.reason_text(reason), "reject")
@@ -459,6 +463,87 @@ func _on_furn_remove(peer_id: int, p: Dictionary, op: String) -> void:
 		"instance_id": iid,
 		"revision": house.revision,
 	}))
+
+
+func _on_struct_set(peer_id: int, p: Dictionary, op: String) -> void:
+	if _op_seen(peer_id, op):
+		_send_error(peer_id, "duplicate op", "duplicate_op")
+		return
+	if not _rate_ok(peer_id):
+		_send_error(peer_id, "rate limit", "rate_limit")
+		return
+	var house := _require_decorate(peer_id)
+	if house == null:
+		return
+	var client_rev := int(p.get("revision", -1))
+	if client_rev >= 0 and client_rev != house.revision:
+		_send_error(peer_id, "stale revision", "stale_op")
+		_send_house_state(peer_id, house)
+		return
+	var result := apply_struct_edit(house, str(p.get("edge", "")), str(p.get("kind", "")))
+	if not bool(result["ok"]):
+		_send_error(peer_id, str(result["reason"]), "reject")
+		return
+	store.save_house(house)
+	_broadcast(house.house_id, NetProtocol.pack(NetProtocol.S_STRUCT_CHANGED, {
+		"edge": result["edge"],
+		"kind": result["kind"],
+		"walls": house.walls.duplicate(),
+		"revision": house.revision,
+	}))
+
+
+func _on_door_toggle(peer_id: int, p: Dictionary, op: String) -> void:
+	## Anyone in the house may open/close doors; it is not decorating, so the
+	## revision is untouched and decorators' in-flight ops are not made stale.
+	if _op_seen(peer_id, op):
+		_send_error(peer_id, "duplicate op", "duplicate_op")
+		return
+	if not _rate_ok(peer_id):
+		_send_error(peer_id, "rate limit", "rate_limit")
+		return
+	var info: Dictionary = _peers.get(peer_id, {})
+	var house_id := str(info.get("house_id", ""))
+	var house := store.load_house(house_id) if house_id != "" else null
+	if house == null:
+		_send_error(peer_id, "not in a house")
+		return
+	var edge := str(p.get("edge", ""))
+	var kind := HouseStructure.toggle_door(house.walls, house.cells(), edge)
+	if kind == "":
+		_send_error(peer_id, HouseStructure.reason_text(HouseStructure.Reason.NOT_A_DOOR), "reject")
+		return
+	store.save_house(house)
+	_broadcast(house.house_id, NetProtocol.pack(NetProtocol.S_STRUCT_CHANGED, {
+		"edge": edge,
+		"kind": kind,
+		"walls": house.walls.duplicate(),
+		"revision": house.revision,
+	}))
+
+
+## Shared by the live server, offline play and tests. Mutates `house`.
+static func apply_struct_edit(house: HouseLayout, edge: String, kind: String) -> Dictionary:
+	var reason := HouseStructure.validate_edit(house.walls, house.cells(), house.furniture, edge, kind)
+	if reason != HouseStructure.Reason.OK:
+		return {"ok": false, "reason": HouseStructure.reason_text(reason), "code": reason}
+	HouseStructure.apply_edit(house.walls, house.cells(), edge, kind)
+	house.revision += 1
+	house.updated_at = int(Time.get_unix_time_from_system())
+	return {"ok": true, "edge": edge, "kind": HouseStructure.kind_at(house.walls, edge, house.cells())}
+
+
+## Test helper: structure edit with the live permission + validation rules.
+static func apply_struct_for_test(store: HouseStore, house_id: String, actor_id: String, edge: String, kind: String) -> Dictionary:
+	var house := store.load_house(house_id)
+	if house == null:
+		return {"ok": false, "reason": "missing"}
+	if not HousePermissions.can_decorate(house, actor_id):
+		return {"ok": false, "reason": "no_permission"}
+	var result := apply_struct_edit(house, edge, kind)
+	if bool(result["ok"]):
+		store.save_house(house)
+	return result
 
 
 func _on_set_collab(peer_id: int, p: Dictionary) -> void:
@@ -649,7 +734,7 @@ static func apply_place_for_test(store: HouseStore, house_id: String, actor_id: 
 	if not HousePermissions.can_decorate(house, actor_id):
 		return {"ok": false, "reason": "no_permission"}
 	var occupied := FurnitureValidator.build_occupied_map(house.furniture)
-	var reason := FurnitureValidator.validate_placement(def_id, cell, rot, house.room_min, house.room_max, occupied)
+	var reason := FurnitureValidator.validate_placement(def_id, cell, rot, house.room_min, house.room_max, occupied, "", house.walls, house.cells())
 	if reason != FurnitureValidator.Reason.OK:
 		return {"ok": false, "reason": FurnitureValidator.reason_text(reason)}
 	var inst := {

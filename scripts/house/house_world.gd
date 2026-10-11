@@ -9,6 +9,7 @@ const OFFLINE_DISPLAY := "You"
 @onready var player: ThirdPersonController = $Player
 @onready var ui: HouseUi = $HouseUI
 @onready var placement: PlacementController = $PlacementController
+var build: BuildController
 
 var _remotes: Dictionary = {} # player_id -> RemotePlayer
 var _furniture: Dictionary = {} # instance_id -> FurnitureVisual
@@ -39,6 +40,16 @@ func _ready() -> void:
 	placement.edit_move_requested.connect(_on_move_req)
 	placement.edit_remove_requested.connect(_on_remove_req)
 	placement.placement_cancelled.connect(func(): player.placement_locked = false)
+
+	build = BuildController.new()
+	build.name = "BuildController"
+	add_child(build)
+	build.camera = player.camera
+	build.preview_parent = space
+	build.furniture_provider = _furniture_instance_list
+	build.build_requested.connect(_on_build_req)
+	build.build_cancelled.connect(func(): GameState.toast("Building done"))
+	space.meadow_gate_entered.connect(_on_meadow_gate)
 
 	player.moved.connect(_on_local_moved)
 	player.global_position = space.spawn_position()
@@ -125,6 +136,7 @@ func _connect_net_signals() -> void:
 	NetClient.furniture_upsert.connect(_on_furn_upsert)
 	NetClient.furniture_removed.connect(_on_furn_removed)
 	NetClient.collab_changed.connect(_on_collab)
+	NetClient.structure_changed.connect(_on_structure_changed)
 	NetClient.invite.connect(_on_invite)
 	NetClient.left_house.connect(_on_left)
 	NetClient.server_error.connect(_on_err)
@@ -144,6 +156,7 @@ func _disconnect_net_signals() -> void:
 		[NetClient.furniture_upsert, _on_furn_upsert],
 		[NetClient.furniture_removed, _on_furn_removed],
 		[NetClient.collab_changed, _on_collab],
+		[NetClient.structure_changed, _on_structure_changed],
 		[NetClient.invite, _on_invite],
 		[NetClient.left_house, _on_left],
 		[NetClient.server_error, _on_err],
@@ -242,10 +255,19 @@ func _on_house_state(state: Dictionary) -> void:
 
 
 func _apply_layout_geometry(layout: HouseLayout) -> void:
-	space.apply_room_bounds(layout.room_min, layout.room_max)
+	space.apply_room_bounds(layout.room_min, layout.room_max, layout.walls)
 	placement.grid_origin = space.grid_origin
 	placement.room_min = layout.room_min
 	placement.room_max = layout.room_max
+	_apply_walls(layout.walls, layout.cells())
+
+
+func _apply_walls(walls: Dictionary, cells: int) -> void:
+	placement.walls = walls
+	placement.house_cells = cells
+	if build:
+		build.walls = walls
+		build.cells = cells
 
 
 func is_online_decorating() -> bool:
@@ -504,7 +526,7 @@ func _on_remove_req(iid: String) -> void:
 func _place_furniture_local(def_id: String, cell: Vector2i, rotation: int) -> void:
 	var occupied := FurnitureValidator.build_occupied_map(_furniture_instance_list())
 	var reason := FurnitureValidator.validate_placement(
-		def_id, cell, rotation, placement.room_min, placement.room_max, occupied
+		def_id, cell, rotation, placement.room_min, placement.room_max, occupied, "", placement.walls, placement.house_cells
 	)
 	if reason != FurnitureValidator.Reason.OK:
 		GameState.toast(FurnitureValidator.reason_text(reason))
@@ -528,7 +550,7 @@ func _move_furniture_local(iid: String, cell: Vector2i, rotation: int) -> void:
 	var vis: FurnitureVisual = _furniture[iid]
 	var occupied := FurnitureValidator.build_occupied_map(_furniture_instance_list())
 	var reason := FurnitureValidator.validate_placement(
-		vis.def_id, cell, rotation, placement.room_min, placement.room_max, occupied, iid
+		vis.def_id, cell, rotation, placement.room_min, placement.room_max, occupied, iid, placement.walls, placement.house_cells
 	)
 	if reason != FurnitureValidator.Reason.OK:
 		GameState.toast(FurnitureValidator.reason_text(reason))
@@ -561,6 +583,83 @@ func _remove_furniture_local(iid: String) -> void:
 	GameState.toast("Removed " + name)
 
 
+func current_walls() -> Dictionary:
+	if _offline_mode and _offline_layout != null:
+		return _offline_layout.walls
+	if not NetClient.current_house.is_empty():
+		var w = NetClient.current_house.get("walls", {})
+		return w if typeof(w) == TYPE_DICTIONARY else {}
+	return space.walls
+
+
+func _on_structure_changed(info: Dictionary) -> void:
+	var w = info.get("walls", {})
+	if typeof(w) != TYPE_DICTIONARY:
+		return
+	space.apply_structure(w)
+	_apply_walls(w, space.room_cells)
+
+
+func start_build(kind: String) -> void:
+	if not placement.can_decorate:
+		GameState.toast(FurnitureValidator.reason_text(FurnitureValidator.Reason.NO_PERMISSION))
+		return
+	# Walk + aim with the crosshair; build mode stays on until Cancel/Esc.
+	cancel_placement()
+	build.begin(kind)
+
+
+func cancel_build() -> void:
+	build.cancel()
+
+
+func _on_build_req(edge: String, kind: String) -> void:
+	if is_online_decorating():
+		NetClient.set_structure(edge, kind)
+		return
+	if _offline_layout == null:
+		return
+	_offline_layout.furniture = _furniture_instance_list()
+	var result := GameServer.apply_struct_edit(_offline_layout, edge, kind)
+	if not bool(result["ok"]):
+		GameState.toast(str(result["reason"]))
+		return
+	_offline_store.save_house(_offline_layout)
+	_on_structure_changed({"walls": _offline_layout.walls})
+	GameState.toast("Removed!" if kind == HouseStructure.NONE else "Built a %s!" % BuildController.tool_label(kind).to_lower())
+
+
+## Open/close a door. Visitors can use doors too.
+func toggle_door(edge: String) -> bool:
+	if not HouseStructure.is_door(space.structure.piece_kind(edge)):
+		return false
+	if is_online_decorating():
+		NetClient.toggle_door(edge)
+		return true
+	if _offline_layout == null:
+		return false
+	if HouseStructure.toggle_door(_offline_layout.walls, _offline_layout.cells(), edge) == "":
+		return false
+	_offline_store.save_house(_offline_layout)
+	_on_structure_changed({"walls": _offline_layout.walls})
+	return true
+
+
+func nearest_door() -> String:
+	return space.structure.nearest_door(player.global_position)
+
+
+func toggle_nearest_door() -> bool:
+	var edge := nearest_door()
+	return edge != "" and toggle_door(edge)
+
+
+func _on_meadow_gate() -> void:
+	if not _leaving:
+		GameState.toast("Off to the meadow!")
+		go_voxel_world()
+
+
 func start_place(def_id: String) -> void:
 	player.placement_locked = true
 	player.release_mouse()
@@ -574,6 +673,14 @@ func cancel_placement() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if build.active:
+		if event.is_action_pressed("pause_menu"):
+			build.cancel()
+			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("interact") or (event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed):
+			build.confirm()
+			get_viewport().set_input_as_handled()
+		return
 	if placement.mode != PlacementController.Mode.IDLE:
 		if event.is_action_pressed("pause_menu"):
 			cancel_placement()
@@ -595,14 +702,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				player.placement_locked = true
 				player.release_mouse()
 				placement.begin_move(_furniture[_selected_id])
+		elif event.is_action_pressed("interact"):
+			toggle_nearest_door()
 		if event is InputEventKey and event.pressed and event.physical_keycode == KEY_X and _selected_id != "":
 			_on_remove_req(_selected_id)
 			_selected_id = ""
 
 
 func _try_select() -> void:
-	if not placement.can_decorate:
-		return
 	var cam := player.camera
 	var vp := get_viewport()
 	var mouse := vp.get_mouse_position()
@@ -618,6 +725,17 @@ func _try_select() -> void:
 		_set_selected("")
 		return
 	var collider: Object = hit.get("collider")
+	if collider is Node and (collider as Node).has_meta("door_edge"):
+		toggle_door(str((collider as Node).get_meta("door_edge")))
+		return
+	# Open leaves don't collide, so a click into a doorway also closes it.
+	if not (collider is Node and (collider as Node).has_meta("furniture_instance_id")):
+		var doorway := space.structure.nearest_door(hit["position"], 0.9)
+		if doorway != "" and space.structure.is_door_open(doorway):
+			toggle_door(doorway)
+			return
+	if not placement.can_decorate:
+		return
 	if collider is Node and (collider as Node).has_meta("furniture_instance_id"):
 		_set_selected(str((collider as Node).get_meta("furniture_instance_id")))
 	else:

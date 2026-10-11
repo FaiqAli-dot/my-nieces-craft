@@ -1,39 +1,54 @@
 extends Node3D
 class_name HouseSpace
-## Cozy Sunny Toy Meadow interior: warm floor, painted walls, windows, door.
+## The home property: warm-floored house (walls/doors/windows from
+## HouseStructure data) inside a fenced garden with a gate path to the meadow.
 ## Room footprint follows the house size tier (Small / Medium / Large).
+
+signal meadow_gate_entered
 
 const FLOOR_Y := 0.0
 ## Default matches HouseLayout SIZE_SMALL (12×12 cells).
 const DEFAULT_ROOM_CELLS := 12
 ## Tall enough for a 1.8m avatar + third-person SpringArm without clipping.
 const WALL_H := 4.8
-const WALL_T := 0.28
 ## Thick walkable slab so CharacterBody3D never tunnels at spawn / jump landings.
 const FLOOR_THICKNESS := 0.5
 ## Clear doorway height for the taller capsule (bottom of lintel).
 const DOOR_CLEARANCE := 2.45
-const DOOR_WIDTH := 2.4
 
 var room_cells: int = DEFAULT_ROOM_CELLS
 var grid_origin: Vector3 = Vector3.ZERO
 var room_min: Vector2i = Vector2i(0, 0)
 var room_max: Vector2i = Vector2i(DEFAULT_ROOM_CELLS - 1, DEFAULT_ROOM_CELLS - 1)
+var walls: Dictionary = {}
+var structure: HouseStructureView
 
 @onready var furniture_root: Node3D = $FurnitureRoot
 @onready var players_root: Node3D = $PlayersRoot
 
 
 func _ready() -> void:
+	structure = HouseStructureView.new()
+	structure.name = "Structure"
+	structure.wall_h = WALL_H
+	add_child(structure)
 	_build_room()
 
 
-func apply_room_bounds(rmin: Vector2i, rmax: Vector2i) -> void:
+func apply_room_bounds(rmin: Vector2i, rmax: Vector2i, p_walls: Dictionary = {}) -> void:
 	room_min = rmin
 	room_max = rmax
 	room_cells = maxi(rmax.x - rmin.x + 1, rmax.y - rmin.y + 1)
 	room_cells = maxi(room_cells, 8)
+	walls = p_walls.duplicate()
 	_build_room()
+
+
+## Walls/doors only (door toggles animate; no room rebuild).
+func apply_structure(p_walls: Dictionary) -> void:
+	walls = p_walls.duplicate()
+	if structure:
+		structure.apply(walls, room_cells)
 
 
 func apply_size_cells(cells: int) -> void:
@@ -67,14 +82,22 @@ func _build_room() -> void:
 	grid_origin = Vector3(0, FLOOR_Y, 0)
 
 	_build_floor(gen, size)
-	_build_walls(gen, size)
+	if structure:
+		structure.apply(walls, room_cells, false)
 	_build_ceiling(gen, size)
-	_build_trim(gen, size)
-	_build_windows(gen, size)
-	_build_door(gen, size)
-	_build_decor(gen, size)
+	_build_roof(gen, size)
 	_build_lights(gen, size)
 	_build_environment(gen)
+	HouseGarden.build(gen, room_cells, HouseLayout.GARDEN_MARGIN, _on_gate_body_entered)
+
+
+func _on_gate_body_entered(body: Node3D) -> void:
+	if body is CharacterBody3D:
+		meadow_gate_entered.emit()
+
+
+func garden_size_meters() -> float:
+	return float(HouseLayout.GARDEN_MARGIN) * FurnitureGrid.CELL_SIZE
 
 
 func _mat(color: Color, rough := 0.92, cull_disabled := false) -> StandardMaterial3D:
@@ -120,14 +143,6 @@ func _build_floor(gen: Node3D, size: float) -> void:
 		_mat(Color(0.72, 0.48, 0.30), 0.88),
 		true
 	)
-	# Exterior apron so walking through the doorway does not drop into the void.
-	_box(
-		gen,
-		Vector3(size + 1.6, floor_center_y, size * 0.5),
-		Vector3(3.2, FLOOR_THICKNESS, 4.0),
-		_mat(Color(0.55, 0.70, 0.40), 0.95),
-		true
-	)
 	# Soft toy floor boards (visual only — collision comes from the slab below)
 	var plank := _mat(Color(0.90, 0.74, 0.52), 0.9)
 	var plank_b := _mat(Color(0.86, 0.68, 0.46), 0.9)
@@ -143,18 +158,6 @@ func _build_floor(gen: Node3D, size: float) -> void:
 		_mat(Color(1.0, 0.78, 0.45), 0.95), false)
 
 
-func _build_walls(gen: Node3D, size: float) -> void:
-	var wall := _mat(Color(0.98, 0.93, 0.82), 0.96, true)
-	var outer := _mat(Color(0.78, 0.58, 0.38), 0.9, true)
-	# North / South / West solid walls (inner cream + outer warm wood)
-	_box(gen, Vector3(size * 0.5, WALL_H * 0.5, -WALL_T * 0.5), Vector3(size + WALL_T * 2.0, WALL_H, WALL_T), wall)
-	_box(gen, Vector3(size * 0.5, WALL_H * 0.5, size + WALL_T * 0.5), Vector3(size + WALL_T * 2.0, WALL_H, WALL_T), wall)
-	_box(gen, Vector3(-WALL_T * 0.5, WALL_H * 0.5, size * 0.5), Vector3(WALL_T, WALL_H, size), wall)
-	# Outer accent band
-	_box(gen, Vector3(size * 0.5, 0.35, -WALL_T - 0.02), Vector3(size + 0.6, 0.7, 0.08), outer, false)
-	_box(gen, Vector3(size * 0.5, 0.35, size + WALL_T + 0.02), Vector3(size + 0.6, 0.7, 0.08), outer, false)
-
-
 func _build_ceiling(gen: Node3D, size: float) -> void:
 	# Colliding ceiling so SpringArm retracts instead of poking through.
 	_box(gen, Vector3(size * 0.5, ceiling_y(), size * 0.5), Vector3(size + 0.5, 0.16, size + 0.5),
@@ -168,62 +171,27 @@ func _build_ceiling(gen: Node3D, size: float) -> void:
 		_box(gen, Vector3(size * 0.5, WALL_H - 0.08, z), Vector3(size - 0.4, 0.14, 0.18), beam, false)
 
 
-func _build_trim(gen: Node3D, size: float) -> void:
-	var trim := _mat(Color(0.82, 0.58, 0.36), 0.85, true)
-	# Baseboards
-	_box(gen, Vector3(size * 0.5, 0.12, 0.06), Vector3(size - 0.1, 0.24, 0.08), trim, false)
-	_box(gen, Vector3(size * 0.5, 0.12, size - 0.06), Vector3(size - 0.1, 0.24, 0.08), trim, false)
-	_box(gen, Vector3(0.06, 0.12, size * 0.5), Vector3(0.08, 0.24, size - 0.1), trim, false)
-
-
-func _build_windows(gen: Node3D, size: float) -> void:
-	var frame := _mat(Color(0.70, 0.48, 0.30), 0.85)
-	var glass := StandardMaterial3D.new()
-	glass.albedo_color = Color(0.55, 0.82, 0.98, 0.45)
-	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	glass.emission_enabled = true
-	glass.emission = Color(0.65, 0.88, 1.0)
-	glass.emission_energy_multiplier = 0.55
-	glass.cull_mode = BaseMaterial3D.CULL_DISABLED
-	# Mid-wall windows stay proportionate on the taller walls.
-	var win_y := 2.15
-	for x in [size * 0.32, size * 0.68]:
-		_box(gen, Vector3(x, win_y, 0.02), Vector3(1.7, 1.45, 0.12), frame, false)
-		_box(gen, Vector3(x, win_y, 0.08), Vector3(1.35, 1.15, 0.05), glass, false)
-
-
-func _build_door(gen: Node3D, size: float) -> void:
-	var wall := _mat(Color(0.98, 0.93, 0.82), 0.96, true)
-	var frame := _mat(Color(0.68, 0.46, 0.28), 0.85)
-	var door := _mat(Color(0.85, 0.55, 0.38), 0.8)
-	var gap := DOOR_WIDTH
-	var side_span := (size - gap) * 0.5
-	# East wall with door gap (open doorway — no door-leaf collision)
-	_box(gen, Vector3(size + WALL_T * 0.5, WALL_H * 0.5, side_span * 0.5), Vector3(WALL_T, WALL_H, side_span), wall)
-	_box(gen, Vector3(size + WALL_T * 0.5, WALL_H * 0.5, size - side_span * 0.5), Vector3(WALL_T, WALL_H, side_span), wall)
-	var lintel_h := WALL_H - DOOR_CLEARANCE
-	_box(
-		gen,
-		Vector3(size + WALL_T * 0.5, DOOR_CLEARANCE + lintel_h * 0.5, size * 0.5),
-		Vector3(WALL_T, lintel_h, gap + 0.2),
-		wall
-	)
-	# Door frame + open leaf parked aside (visual only so doorway stays usable)
-	_box(gen, Vector3(size + 0.02, DOOR_CLEARANCE * 0.5, size * 0.5), Vector3(0.12, DOOR_CLEARANCE, gap * 0.65), frame, false)
-	_box(gen, Vector3(size + 0.08, DOOR_CLEARANCE * 0.45, size * 0.5 - gap * 0.28), Vector3(0.08, DOOR_CLEARANCE * 0.9, gap * 0.3), door, false)
-	_box(gen, Vector3(size + 0.14, DOOR_CLEARANCE * 0.48, size * 0.5 - gap * 0.15), Vector3(0.06, 0.12, 0.12),
-		_mat(Color(1.0, 0.85, 0.35), 0.6), false)
-
-
-func _build_decor(gen: Node3D, size: float) -> void:
-	# Window flower shelf — light solid so kids bump into it
-	_box(gen, Vector3(size * 0.32, 1.25, 0.35), Vector3(1.2, 0.1, 0.35),
-		_mat(Color(0.75, 0.5, 0.32), 0.88), true)
-	# Soft corner cushion blocks — solid seating props
-	_box(gen, Vector3(1.1, 0.28, 1.1), Vector3(1.2, 0.55, 1.2),
-		_mat(Color(0.55, 0.78, 0.95), 0.95), true)
-	_box(gen, Vector3(size - 1.2, 0.22, 1.2), Vector3(1.0, 0.42, 1.0),
-		_mat(Color(0.95, 0.72, 0.82), 0.95), true)
+func _build_roof(gen: Node3D, size: float) -> void:
+	## Pitched toy roof seen from the garden (visual only; the ceiling collides).
+	var mat := _mat(Color(0.86, 0.42, 0.36), 0.9, true)
+	var gable := _mat(Color(0.98, 0.93, 0.82), 0.96, true)
+	# Steep enough that a garden-level camera sees the roof's top face.
+	var rise := clampf(size * 0.4, 3.4, 7.0)
+	var half := size * 0.5 + 0.6
+	var slope := atan2(rise, half)
+	var slab_w := sqrt(half * half + rise * rise)
+	var base_y := ceiling_y() + 0.08
+	for side in [-1.0, 1.0]:
+		var slab := _box(gen, Vector3(size * 0.5, base_y + rise * 0.5, size * 0.5 + side * half * 0.5),
+			Vector3(size + 1.0, 0.22, slab_w), mat, false)
+		slab.rotation.x = side * slope
+	# Triangular gable ends approximated with stacked steps.
+	var steps := 6
+	for i in steps:
+		var t := float(i) / float(steps)
+		var w := size * (1.0 - t)
+		for x in [-0.02, size + 0.02]:
+			_box(gen, Vector3(x, base_y + rise * (t + 0.5 / steps), size * 0.5), Vector3(0.12, rise / steps, w), gable, false)
 
 
 func _build_lights(gen: Node3D, size: float) -> void:

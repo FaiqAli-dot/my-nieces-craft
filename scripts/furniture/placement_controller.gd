@@ -20,6 +20,9 @@ var grid_origin: Vector3 = Vector3.ZERO
 var floor_y: float = 0.0
 var room_min: Vector2i = HouseLayout.DEFAULT_ROOM_MIN
 var room_max: Vector2i = HouseLayout.DEFAULT_ROOM_MAX
+## HouseStructure data so previews match server rules (walls, doorways).
+var walls: Dictionary = {}
+var house_cells: int = 0
 var furniture_root: Node3D
 var camera: Camera3D
 
@@ -266,7 +269,7 @@ func _physics_process(_delta: float) -> void:
 		for c in cells:
 			occupied["%d,%d" % [c.x, c.y]] = iid
 	_last_reason = FurnitureValidator.validate_placement(
-		def_id, _anchor, rotation_deg, room_min, room_max, occupied, instance_id
+		def_id, _anchor, rotation_deg, room_min, room_max, occupied, instance_id, walls, house_cells
 	)
 	_valid = _last_reason == FurnitureValidator.Reason.OK
 	_update_preview_xform()

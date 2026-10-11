@@ -21,6 +21,7 @@ signal player_moved(info: Dictionary)
 signal furniture_upsert(info: Dictionary)
 signal furniture_removed(info: Dictionary)
 signal collab_changed(info: Dictionary)
+signal structure_changed(info: Dictionary)
 signal invite(info: Dictionary)
 signal left_house
 signal server_error(info: Dictionary)
@@ -297,6 +298,14 @@ func remove_furniture(instance_id: String) -> void:
 	}, true)
 
 
+func set_structure(edge: String, kind: String) -> void:
+	send(NetProtocol.C_STRUCT_SET, {"edge": edge, "kind": kind, "revision": revision}, true)
+
+
+func toggle_door(edge: String) -> void:
+	send(NetProtocol.C_DOOR_TOGGLE, {"edge": edge}, true)
+
+
 func set_collab(enabled: bool) -> void:
 	send(NetProtocol.C_SET_COLLAB, {"enabled": enabled})
 
@@ -358,6 +367,13 @@ func _handle(text: String) -> void:
 				"spawn": p.get("spawn", {}),
 				"size_changed": true,
 			})
+		NetProtocol.S_STRUCT_CHANGED:
+			revision = int(p.get("revision", revision))
+			var w = p.get("walls", {})
+			if not current_house.is_empty() and typeof(w) == TYPE_DICTIONARY:
+				current_house["walls"] = w
+				current_house["revision"] = revision
+			structure_changed.emit(p)
 		NetProtocol.S_INVITE:
 			invite.emit(p)
 		NetProtocol.S_LEFT_HOUSE:

@@ -27,6 +27,8 @@ var debug_box: VBoxContainer
 var catalog_panel: PanelContainer
 var visit_panel: PanelContainer
 var size_panel: PanelContainer
+var build_panel: PanelContainer
+var door_btn: ActionButton
 var invite_input: LineEdit
 var touch_layer: Control
 var joystick: TouchJoystick
@@ -41,6 +43,7 @@ var jump_btn: ActionButton
 var size_btn: Button
 var size_chip: Label
 var _toast_timer := 0.0
+var _hinted_door := ""
 var toast_label: Label
 var _catalog_open := false
 var _visit_open := false
@@ -179,6 +182,7 @@ func _build() -> void:
 	root.add_child(_top_actions)
 	for spec in [
 		["Catalog", COL_SKY, open_catalog],
+		["Build", COL_PINK, open_build_panel],
 		["House size", COL_GREEN, open_size_panel],
 		["Invite", COL_PINK, func(): NetClient.request_invite()],
 		["Visit", COL_ACCENT, open_visit_panel],
@@ -188,7 +192,7 @@ func _build() -> void:
 	]:
 		var b := Button.new()
 		b.text = spec[0]
-		_theme_button(b, Vector2(110 if spec[0] != "House size" else 130, 48), spec[1])
+		_theme_button(b, Vector2(98 if spec[0] != "House size" else 130, 48), spec[1])
 		b.pressed.connect(spec[2])
 		_top_actions.add_child(b)
 		if spec[0] == "House size":
@@ -272,7 +276,38 @@ func _build() -> void:
 	close_s.pressed.connect(func(): panels.close("size"))
 	sv.add_child(close_s)
 
+	build_panel = _panel(root, "Build", Vector2(420, 400))
+	var bv: VBoxContainer = build_panel.get_node("Margin/VBox")
+	bv.add_child(_lab("Pick a piece, then aim at a wall line", 18))
+	var tools := GridContainer.new()
+	tools.columns = 2
+	tools.add_theme_constant_override("h_separation", 8)
+	tools.add_theme_constant_override("v_separation", 8)
+	bv.add_child(tools)
+	for spec in [
+		[HouseStructure.WALL, COL_ACCENT],
+		[HouseStructure.WINDOW, COL_SKY],
+		[HouseStructure.DOOR, COL_GREEN],
+		[HouseStructure.NONE, COL_CORAL],
+	]:
+		var tb := Button.new()
+		var kind: String = spec[0]
+		tb.name = "Tool_" + BuildController.tool_label(kind)
+		tb.text = BuildController.tool_label(kind)
+		_theme_button(tb, Vector2(180, 60), spec[1])
+		tb.pressed.connect(func():
+			panels.close("build")
+			if world:
+				world.start_build(kind))
+		tools.add_child(tb)
+	var close_b := Button.new()
+	close_b.text = "Close"
+	_theme_button(close_b, Vector2(160, 48), COL_CORAL)
+	close_b.pressed.connect(func(): panels.close("build"))
+	bv.add_child(close_b)
+
 	panels.register("catalog", catalog_panel)
+	panels.register("build", build_panel)
 	panels.register("visit", visit_panel)
 	panels.register("size", size_panel)
 
@@ -284,6 +319,7 @@ func _build() -> void:
 	root.move_child(catalog_panel, -1)
 	root.move_child(visit_panel, -1)
 	root.move_child(size_panel, -1)
+	root.move_child(build_panel, -1)
 
 
 func _build_touch(root: Control) -> void:
@@ -324,8 +360,16 @@ func _build_touch(root: Control) -> void:
 	rotate_btn = _action_btn("Rotate", COL_PINK, "res://assets/ui/icons/icon_rotate.png")
 	cancel_btn = _action_btn("Cancel", COL_CORAL, "res://assets/ui/icons/icon_break.png")
 	jump_btn = _action_btn("Jump", COL_GREEN, "res://assets/ui/icons/icon_jump.png")
+	door_btn = _action_btn("Door", COL_ACCENT, "res://assets/ui/icons/icon_place.png")
+	door_btn.visible = false
+	door_btn.pressed.connect(func():
+		if world:
+			world.toggle_nearest_door()
+	)
 	place_btn.pressed.connect(func():
-		if world and world.placement.mode != PlacementController.Mode.IDLE:
+		if world and world.build.active:
+			world.build.confirm()
+		elif world and world.placement.mode != PlacementController.Mode.IDLE:
 			world.placement.confirm()
 	)
 	rotate_btn.pressed.connect(func():
@@ -333,7 +377,9 @@ func _build_touch(root: Control) -> void:
 			world.placement.rotate_preview(1)
 	)
 	cancel_btn.pressed.connect(func():
-		if world:
+		if world and world.build.active:
+			world.cancel_build()
+		elif world:
 			world.cancel_placement()
 	)
 	jump_btn.pressed.connect(func():
@@ -343,6 +389,8 @@ func _build_touch(root: Control) -> void:
 	for btn in [place_btn, rotate_btn, cancel_btn, jump_btn]:
 		cluster.add_child(btn)
 	cluster.set_meta("buttons", [place_btn, rotate_btn, cancel_btn, jump_btn])
+	# Contextual: sits left of the action column when a door is in reach.
+	touch_layer.add_child(door_btn)
 
 
 func _action_btn(label: String, color: Color, icon: String) -> ActionButton:
@@ -425,6 +473,17 @@ func _layout_touch() -> void:
 		if btn.has_method("_apply_style"):
 			btn._apply_style(false)
 		y += btn_sz + gap
+	if door_btn:
+		door_btn.button_size = btn_sz
+		door_btn.custom_minimum_size = Vector2(btn_sz, btn_sz)
+		door_btn.size = Vector2(btn_sz, btn_sz)
+		door_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+		door_btn.offset_left = -btn_sz * 2.0 - 32.0
+		door_btn.offset_right = -btn_sz - 32.0
+		door_btn.offset_top = -btn_sz - 16.0
+		door_btn.offset_bottom = -16.0
+		if door_btn.has_method("_layout_children"):
+			door_btn._layout_children()
 
 
 func _on_move_changed(v: Vector2) -> void:
@@ -467,10 +526,29 @@ func _detect_touch() -> void:
 
 
 func _process(delta: float) -> void:
+	if world:
+		var near: String = world.nearest_door()
+		if door_btn and touch_layer.visible:
+			door_btn.visible = near != ""
+		_update_door_hint(near)
 	if _toast_timer > 0.0:
 		_toast_timer -= delta
 		if _toast_timer <= 0.0:
 			toast_label.text = ""
+
+
+## Once per approach: a closed door tells the player how to open it.
+func _update_door_hint(near: String) -> void:
+	if near == _hinted_door:
+		return
+	_hinted_door = near
+	if near == "" or world.space.structure.is_door_open(near) or world.build.active:
+		return
+	show_toast(door_hint_text())
+
+
+func door_hint_text() -> String:
+	return "Tap Door to open" if touch_layer.visible else "Press E or click the door to open it"
 
 
 func show_toast(text: String) -> void:
@@ -576,6 +654,16 @@ func _populate_catalog() -> void:
 				world.start_place(def_id)
 		)
 		grid.add_child(b)
+
+
+func open_build_panel() -> void:
+	if world and not world.placement.can_decorate:
+		GameState.toast(FurnitureValidator.reason_text(FurnitureValidator.Reason.NO_PERMISSION))
+		return
+	if panels.is_open("build"):
+		panels.close("build")
+		return
+	panels.open("build")
 
 
 func open_visit_panel() -> void:
