@@ -6,9 +6,11 @@ class_name SaveGame
 ##   1 — {creative: bool, world, inventory}
 ##   2 — adds game_mode ("creative"/"survival"), difficulty, drops
 ##   3 — adds saved_at and the player's pose
+##   4 — world data v3: biome world from a seed, only edited chunks stored;
+##       player state gains health. Older builds must refuse these saves.
 
 const SAVE_PATH := "user://cozyblocks_world.json"
-const SCHEMA_VERSION := 3
+const SCHEMA_VERSION := 4
 
 enum Status { NONE, OK, INVALID }
 
@@ -107,6 +109,8 @@ static func migrate(data: Dictionary) -> Dictionary:
 	if schema < 3:
 		if not out.has("saved_at"):
 			out["saved_at"] = 0
+	# 3 → 4 needs no payload change: VoxelWorld.deserialize reads full v1/v2
+	# chunk dumps as edited chunks on top of the generated world.
 	out["schema_version"] = SCHEMA_VERSION
 	return out
 

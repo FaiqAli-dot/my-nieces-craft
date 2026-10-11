@@ -13,6 +13,9 @@ signal mining_progress(progress: float) ## 0..1 while Survival mining; <0 when i
 signal block_harvested(block: String, drop: String, count: int)
 signal block_placed(block: String)
 signal item_crafted(recipe_id: String, item: String)
+signal player_hurt(amount: int, source: String)
+signal player_fainted
+signal creature_defeated(kind: String)
 
 enum Mode { CREATIVE, SURVIVAL }
 
@@ -116,3 +119,15 @@ func notify_block_placed(block: String) -> void:
 
 func notify_item_crafted(recipe_id: String, item: String) -> void:
 	item_crafted.emit(recipe_id, item)
+
+
+func notify_player_hurt(amount: int, source: String) -> void:
+	player_hurt.emit(amount, source)
+
+
+func notify_player_fainted() -> void:
+	player_fainted.emit()
+
+
+func notify_creature_defeated(kind: String) -> void:
+	creature_defeated.emit(kind)

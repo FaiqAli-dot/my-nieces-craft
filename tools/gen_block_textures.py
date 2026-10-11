@@ -120,9 +120,64 @@ def roof_tile(seed):
     return img
 
 
+def snow_top(seed):
+    img = Image.new("RGBA", (S, S))
+    noise_fill(img, (238, 244, 250), 0.025, seed)
+    rnd = random.Random(seed + 1)
+    d = ImageDraw.Draw(img)
+    for _ in range(18):
+        x, y = rnd.randint(0, S - 3), rnd.randint(0, S - 3)
+        d.rectangle([x, y, x + 1, y + 1], fill=(206, 222, 240, 255))
+    return img
+
+
+def snow_side(seed):
+    img = Image.new("RGBA", (S, S))
+    noise_fill(img, (134, 96, 66), 0.06, seed)
+    rnd = random.Random(seed + 2)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, S - 1, 15], fill=(238, 244, 250, 255))
+    for x in range(0, S, 4):
+        drip = rnd.randint(0, 3) * 4
+        d.rectangle([x, 16, x + 3, 16 + drip], fill=(226, 236, 248, 255))
+    return img
+
+
+def water(seed):
+    img = Image.new("RGBA", (S, S))
+    noise_fill(img, (92, 168, 226), 0.04, seed, cell=8)
+    d = ImageDraw.Draw(img)
+    rnd = random.Random(seed + 3)
+    for _ in range(7):
+        x, y = rnd.randint(0, S - 14), rnd.randint(2, S - 4)
+        d.rectangle([x, y, x + 10, y + 1], fill=(170, 214, 246, 255))
+    return img
+
+
+def mossy_cobble(seed):
+    img = Image.new("RGBA", (S, S))
+    noise_fill(img, (128, 128, 124), 0.06, seed)
+    rnd = random.Random(seed + 4)
+    d = ImageDraw.Draw(img)
+    for row in range(4):
+        y = row * 16
+        d.rectangle([0, y + 14, S - 1, y + 15], fill=(96, 96, 92, 255))
+        off = 0 if row % 2 == 0 else 10
+        for x in range(off, S + 20, 20):
+            d.rectangle([x - 1, y, x, y + 14], fill=(100, 100, 96, 255))
+    for _ in range(26):
+        x, y = rnd.randint(0, S - 6), rnd.randint(0, S - 6)
+        d.rectangle([x, y, x + rnd.randint(3, 6), y + rnd.randint(2, 4)], fill=(104, 150, 76, 255))
+    return img
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     out = {
+        "snow_top.png": snow_top(71),
+        "snow_side.png": snow_side(72),
+        "water.png": water(73),
+        "mossy_cobble.png": mossy_cobble(74),
         "log_side.png": log_side((150, 98, 58), (118, 74, 42), 11),
         "log_top.png": log_top((128, 82, 48), (226, 184, 124), (196, 150, 96)),
         "birch_side.png": birch_side(21),

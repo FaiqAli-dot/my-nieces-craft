@@ -5,19 +5,34 @@ class_name VoxelWorld
 signal world_reset
 signal block_changed(pos: Vector3i, id: int)
 
-const WORLD_CHUNKS := Vector3i(4, 2, 4) # 64 x 32 x 64 blocks
+## The hand-built meadow occupies blocks 0..MEADOW_SIZE-1; biomes surround it.
+const MEADOW_SIZE := 64
+const CHUNK_MIN := Vector3i(-3, 0, -3)
+const CHUNK_MAX := Vector3i(7, 2, 7) # exclusive: 160 x 32 x 160 blocks
 const GROUND_Y := 4
 const SPAWN_BLOCK := Vector3i(32, GROUND_Y + 1, 32)
 const MAX_DROPS := 80
+## Chunks (Chebyshev, in x/z) meshed synchronously around the focus on load.
+const SYNC_MESH_RADIUS := 1
 
 var chunks: Dictionary = {} # Vector3i -> VoxelChunk
-var boundary_min := Vector3(1, 0, 1)
-var boundary_max := Vector3(WORLD_CHUNKS.x * VoxelChunk.SIZE - 2, WORLD_CHUNKS.y * VoxelChunk.SIZE - 1, WORLD_CHUNKS.z * VoxelChunk.SIZE - 2)
+var boundary_min := Vector3(CHUNK_MIN.x * VoxelChunk.SIZE + 1, 0, CHUNK_MIN.z * VoxelChunk.SIZE + 1)
+var boundary_max := Vector3(CHUNK_MAX.x * VoxelChunk.SIZE - 2, CHUNK_MAX.y * VoxelChunk.SIZE - 1, CHUNK_MAX.z * VoxelChunk.SIZE - 2)
 
 var chunk_root: Node3D
 var drop_root: Node3D
 ## Set by deserialize() when a v1 save's wood trunks were converted to logs.
 var migrated_tree_logs := 0
+var world_seed := TerrainGen.DEFAULT_SEED
+var terrain: TerrainGen
+## Distant chunks are meshed a few per frame, nearest to `focus` first.
+var focus: Node3D
+var mesh_budget_ms := 4.0
+var _mesh_queue: Array[VoxelChunk] = []
+var _avg_mesh_ms := 2.0
+var _queue_sorted_for := Vector3i(1 << 20, 0, 0)
+## While true, set_block() does not mark chunks as player-modified.
+var _generating := false
 
 
 func _ready() -> void:
@@ -34,8 +49,17 @@ func _ready() -> void:
 	generate_flat_world()
 
 
+func world_min_block() -> Vector3i:
+	return CHUNK_MIN * VoxelChunk.SIZE
+
+
+## Exclusive upper corner.
+func world_max_block() -> Vector3i:
+	return CHUNK_MAX * VoxelChunk.SIZE
+
+
 func world_size_blocks() -> Vector3i:
-	return Vector3i(WORLD_CHUNKS.x * VoxelChunk.SIZE, WORLD_CHUNKS.y * VoxelChunk.SIZE, WORLD_CHUNKS.z * VoxelChunk.SIZE)
+	return world_max_block() - world_min_block()
 
 
 func spawn_position() -> Vector3:
@@ -65,8 +89,9 @@ func world_to_chunk(wx: int, wy: int, wz: int) -> Vector3i:
 
 
 func in_bounds(wx: int, wy: int, wz: int) -> bool:
-	var size := world_size_blocks()
-	return wx >= 0 and wy >= 0 and wz >= 0 and wx < size.x and wy < size.y and wz < size.z
+	var lo := CHUNK_MIN * VoxelChunk.SIZE
+	var hi := CHUNK_MAX * VoxelChunk.SIZE
+	return wx >= lo.x and wy >= lo.y and wz >= lo.z and wx < hi.x and wy < hi.y and wz < hi.z
 
 
 func get_block(wx: int, wy: int, wz: int) -> int:
@@ -84,6 +109,8 @@ func set_block(wx: int, wy: int, wz: int, id: int, rebuild: bool = true) -> void
 	var key := world_to_chunk(wx, wy, wz)
 	var chunk := ensure_chunk(key)
 	chunk.set_block_world(wx, wy, wz, id)
+	if not _generating:
+		chunk.modified = true
 	if rebuild:
 		_rebuild_affected(wx, wy, wz)
 	block_changed.emit(Vector3i(wx, wy, wz), id)
@@ -108,9 +135,9 @@ func rebuild_cells(cells: Array) -> void:
 
 func _rebuild_keys(keys: Array[Vector3i]) -> void:
 	for key in keys:
-		if key.x < 0 or key.y < 0 or key.z < 0:
+		if key.x < CHUNK_MIN.x or key.y < CHUNK_MIN.y or key.z < CHUNK_MIN.z:
 			continue
-		if key.x >= WORLD_CHUNKS.x or key.y >= WORLD_CHUNKS.y or key.z >= WORLD_CHUNKS.z:
+		if key.x >= CHUNK_MAX.x or key.y >= CHUNK_MAX.y or key.z >= CHUNK_MAX.z:
 			continue
 		var chunk := ensure_chunk(key)
 		chunk.dirty = true
@@ -145,6 +172,13 @@ func _affected_keys(wx: int, wy: int, wz: int) -> Array[Vector3i]:
 
 
 func generate_flat_world() -> void:
+	_generate()
+	mesh_around(focus_point(), SYNC_MESH_RADIUS)
+	world_reset.emit()
+
+
+## Builds every chunk from the seed (meadow + biomes + landmarks); no meshing.
+func _generate() -> void:
 	if chunk_root == null:
 		chunk_root = get_node_or_null("Chunks") as Node3D
 		if chunk_root == null:
@@ -154,33 +188,104 @@ func generate_flat_world() -> void:
 	for c in chunk_root.get_children():
 		c.queue_free()
 	chunks.clear()
-	for cy in WORLD_CHUNKS.y:
-		for cz in WORLD_CHUNKS.z:
-			for cx in WORLD_CHUNKS.x:
+	_mesh_queue.clear()
+	_queue_sorted_for = Vector3i(1 << 20, 0, 0)
+	for cy in range(CHUNK_MIN.y, CHUNK_MAX.y):
+		for cz in range(CHUNK_MIN.z, CHUNK_MAX.z):
+			for cx in range(CHUNK_MIN.x, CHUNK_MAX.x):
 				ensure_chunk(Vector3i(cx, cy, cz))
-	var size := world_size_blocks()
-	var grass_id := BlockDB.get_id("grass")
-	var dirt_id := BlockDB.get_id("dirt")
-	var stone_id := BlockDB.get_id("stone")
-	for z in size.z:
-		for x in size.x:
-			for y in GROUND_Y + 1:
-				var id := stone_id
-				if y == GROUND_Y:
-					id = grass_id
-				elif y >= GROUND_Y - 2:
-					id = dirt_id
-				set_block(x, y, z, id, false)
+	_generating = true
+	terrain = TerrainGen.new(world_seed, Vector2i(world_min_block().x, world_min_block().z), Vector2i(world_max_block().x, world_max_block().z))
+	terrain.fill(self)
 	_dress_meadow()
 	_place_stone_outcrop()
 	_place_boulders()
 	_plant_voxel_trees()
+	terrain.decorate(self)
+	Landmarks.build_signs(self, terrain)
+	_generating = false
 	clear_drops()
-	# Mark all dirty and rebuild once
 	for key in chunks.keys():
-		chunks[key].dirty = true
-		chunks[key].rebuild_mesh()
-	world_reset.emit()
+		var c: VoxelChunk = chunks[key]
+		c.dirty = true
+		c.modified = false
+		_mesh_queue.append(c)
+
+
+func focus_point() -> Vector3:
+	if focus != null and is_instance_valid(focus) and focus.is_inside_tree():
+		return focus.global_position
+	return spawn_position()
+
+
+func _chunk_distance(c: VoxelChunk, p: Vector3) -> float:
+	var centre := Vector3(c.chunk_pos * VoxelChunk.SIZE) + Vector3.ONE * (VoxelChunk.SIZE * 0.5)
+	return Vector2(centre.x - p.x, centre.z - p.z).length_squared() + absf(centre.y - p.y)
+
+
+## Meshes queued chunks within `radius` chunks (x/z) of `pos` right now.
+func mesh_around(pos: Vector3, radius: int) -> void:
+	var centre := world_to_chunk(floori(pos.x), floori(pos.y), floori(pos.z))
+	var keep: Array[VoxelChunk] = []
+	for c in _mesh_queue:
+		if not is_instance_valid(c):
+			continue
+		if absi(c.chunk_pos.x - centre.x) <= radius and absi(c.chunk_pos.z - centre.z) <= radius:
+			c.rebuild_mesh()
+		else:
+			keep.append(c)
+	_mesh_queue = keep
+
+
+func mesh_all_now() -> void:
+	for c in _mesh_queue:
+		if is_instance_valid(c):
+			c.rebuild_mesh()
+	_mesh_queue.clear()
+
+
+func pending_mesh_count() -> int:
+	return _mesh_queue.size()
+
+
+## Meshes the nearest queued chunks until `budget_ms` is spent. Returns how many.
+func process_mesh_queue(budget_ms: float) -> int:
+	var start := Time.get_ticks_usec()
+	_sort_mesh_queue()
+	var done := 0
+	while not _mesh_queue.is_empty():
+		var spent := (Time.get_ticks_usec() - start) / 1000.0
+		if done > 0 and spent + _avg_mesh_ms > budget_ms:
+			break
+		var chunk: VoxelChunk = _mesh_queue.pop_back()
+		if is_instance_valid(chunk):
+			var t0 := Time.get_ticks_usec()
+			chunk.rebuild_mesh()
+			if chunk.has_geometry():
+				_avg_mesh_ms = lerpf(_avg_mesh_ms, (Time.get_ticks_usec() - t0) / 1000.0, 0.3)
+			done += 1
+	return done
+
+
+## Farthest first, so the nearest chunk is popped from the back. Re-sorted only
+## when the focus enters another chunk.
+func _sort_mesh_queue() -> void:
+	var p := focus_point()
+	var key := world_to_chunk(floori(p.x), floori(p.y), floori(p.z))
+	if key == _queue_sorted_for:
+		return
+	_queue_sorted_for = key
+	var valid: Array[VoxelChunk] = []
+	for c in _mesh_queue:
+		if is_instance_valid(c):
+			valid.append(c)
+	valid.sort_custom(func(a: VoxelChunk, b: VoxelChunk) -> bool: return _chunk_distance(a, p) > _chunk_distance(b, p))
+	_mesh_queue = valid
+
+
+func _process(_delta: float) -> void:
+	if not _mesh_queue.is_empty():
+		process_mesh_queue(mesh_budget_ms)
 
 
 func _dress_meadow() -> void:
@@ -330,7 +435,8 @@ func reset_world() -> void:
 func can_place_at(wx: int, wy: int, wz: int, player_aabb: AABB) -> bool:
 	if not in_bounds(wx, wy, wz):
 		return false
-	if get_block(wx, wy, wz) != 0:
+	var current := get_block(wx, wy, wz)
+	if current != 0 and not BlockDB.is_liquid(current):
 		return false
 	var block_aabb := AABB(Vector3(wx, wy, wz), Vector3.ONE)
 	if player_aabb.intersects(block_aabb):
@@ -521,34 +627,41 @@ func _place_boulders() -> void:
 
 
 ## v2: natural trees use tree_log blocks (log/birch_log) instead of wood.
-const WORLD_DATA_VERSION := 2
+## v3: seeded biome world; only player-modified chunks are stored (+ seed).
+## v1/v2 saves hold every meadow chunk; those load as modified chunks.
+const WORLD_DATA_VERSION := 3
 
 
 func serialize() -> Dictionary:
-	var out := {"version": WORLD_DATA_VERSION, "chunks": {}}
+	var out := {"version": WORLD_DATA_VERSION, "seed": world_seed, "chunks": {}}
 	for key in chunks.keys():
+		var c: VoxelChunk = chunks[key]
+		if not c.modified:
+			continue
 		var k: Vector3i = key
-		var b64 := Marshalls.raw_to_base64(chunks[key].to_bytes())
-		out["chunks"]["%d,%d,%d" % [k.x, k.y, k.z]] = b64
+		out["chunks"]["%d,%d,%d" % [k.x, k.y, k.z]] = Marshalls.raw_to_base64(c.to_bytes())
 	return out
 
 
 func deserialize(data: Dictionary) -> void:
-	generate_flat_world()
+	world_seed = int(data.get("seed", TerrainGen.DEFAULT_SEED))
+	_generate()
 	var chunk_data: Dictionary = data.get("chunks", {})
 	for key_str in chunk_data.keys():
 		var parts := str(key_str).split(",")
 		if parts.size() != 3:
 			continue
 		var key := Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
+		if not chunks.has(key):
+			continue
 		var bytes := Marshalls.base64_to_raw(str(chunk_data[key_str]))
-		var chunk := ensure_chunk(key)
+		var chunk: VoxelChunk = chunks[key]
 		chunk.from_bytes(bytes)
+		chunk.modified = true
 	if int(data.get("version", 1)) < 2:
 		migrated_tree_logs = _migrate_v1_tree_trunks()
-	for key in chunks.keys():
-		chunks[key].dirty = true
-		chunks[key].rebuild_mesh()
+	mesh_around(focus_point(), SYNC_MESH_RADIUS)
+	world_reset.emit()
 
 
 func _migrate_v1_tree_trunks() -> int:
@@ -556,12 +669,12 @@ func _migrate_v1_tree_trunks() -> int:
 	## natural logs so they fell like new trees; other wood (fences, builds) stays.
 	var wood_id := BlockDB.get_id("wood")
 	var log_id := BlockDB.get_id("log")
-	var size := world_size_blocks()
+	var height := world_size_blocks().y
 	var converted := 0
-	for z in size.z:
-		for x in size.x:
+	for z in MEADOW_SIZE:
+		for x in MEADOW_SIZE:
 			var y := 0
-			while y < size.y:
+			while y < height:
 				if get_block(x, y, z) != wood_id or get_block(x, y - 1, z) == wood_id:
 					y += 1
 					continue

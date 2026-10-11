@@ -40,6 +40,8 @@ var fly_down_btn: ActionButton
 var _fly_cluster: Control
 var mode_select_panel: Control
 var mining_bar: ProgressBar
+var hearts_bar: HeartsBar
+var hurt_flash: ColorRect
 var hint_label: Label
 
 var _toast_timer := 0.0
@@ -84,6 +86,9 @@ func bind_player(p: PlayerController) -> void:
 	player = p
 	_build_craft_list()
 	refresh_hotbar()
+	if hearts_bar:
+		hearts_bar.bind(p.health, hurt_flash)
+		hearts_bar.visible = GameState.is_survival()
 	if touch_controls and not touch_controls.move_changed.is_connected(_on_touch_move):
 		touch_controls.move_changed.connect(_on_touch_move)
 		touch_controls.look_delta.connect(_on_touch_look)
@@ -363,6 +368,7 @@ func _build_ui() -> void:
 	panels.register("settings", settings_panel)
 	_build_fly_controls()
 	_build_mining_bar()
+	_build_hearts()
 	_build_mode_select()
 	_build_hint_label()
 
@@ -890,6 +896,8 @@ func _on_creative(enabled: bool) -> void:
 		hint_label.visible = not enabled
 		if not enabled:
 			hint_label.text = "Punch trees · craft tools · dig stone"
+	if hearts_bar:
+		hearts_bar.visible = not enabled
 	refresh_hotbar()
 	_layout_fly_controls()
 
@@ -958,6 +966,25 @@ func show_mode_select() -> void:
 func hide_mode_select() -> void:
 	if mode_select_panel:
 		mode_select_panel.visible = false
+
+
+func _build_hearts() -> void:
+	hurt_flash = ColorRect.new()
+	hurt_flash.name = "HurtFlash"
+	hurt_flash.color = Color(0.95, 0.2, 0.25, 0.0)
+	hurt_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hurt_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(hurt_flash)
+	_root.move_child(hurt_flash, 0)
+	hearts_bar = HeartsBar.new()
+	hearts_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	var w := hearts_bar.custom_minimum_size.x
+	hearts_bar.offset_left = -w * 0.5
+	hearts_bar.offset_right = w * 0.5
+	hearts_bar.offset_top = 22
+	hearts_bar.offset_bottom = 22 + HeartsBar.HEART
+	hearts_bar.visible = GameState.is_survival()
+	_root.add_child(hearts_bar)
 
 
 func _build_mining_bar() -> void:

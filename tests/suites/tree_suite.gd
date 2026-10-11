@@ -56,7 +56,7 @@ func _trunk_height(w: VoxelWorld, base: Vector3i) -> int:
 func _test_generated_trees_are_natural() -> void:
 	var w := _world()
 	await get_tree().process_frame
-	var size := w.world_size_blocks()
+	var size := Vector3i(VoxelWorld.MEADOW_SIZE, w.world_size_blocks().y, VoxelWorld.MEADOW_SIZE)
 	var bases := 0
 	for z in size.z:
 		for x in size.x:
@@ -74,14 +74,12 @@ func _test_generated_trees_are_natural() -> void:
 	add_child(props)
 	MeadowDresser.new().dress(props)
 	var deco_inside := 0
-	var all_nodes: Array[Node] = props.find_children("*", "Node3D", true, false)
-	for n in all_nodes:
-		if n is MultiMeshInstance3D and str(n.name).begins_with("MM_Tree"):
-			var mm: MultiMesh = (n as MultiMeshInstance3D).multimesh
-			for i in mm.instance_count:
-				var o := mm.get_instance_transform(i).origin
-				if o.x > w.boundary_min.x and o.x < w.boundary_max.x and o.z > w.boundary_min.z and o.z < w.boundary_max.z:
-					deco_inside += 1
+	var canopy := props.find_child("MM_TreeCanopies", true, false)
+	var positions: Array = canopy.get_meta("positions", []) if canopy else []
+	for o: Vector3 in positions:
+		if o.x > w.boundary_min.x and o.x < w.boundary_max.x and o.z > w.boundary_min.z and o.z < w.boundary_max.z:
+			deco_inside += 1
+	check(positions.size() > 100, "backdrop tree ring generated (%d)" % positions.size())
 	check(deco_inside == 0, "no decorative (unbreakable) trees inside the playable area (%d)" % deco_inside)
 	props.queue_free()
 	await _free(w)

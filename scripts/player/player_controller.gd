@@ -41,6 +41,14 @@ var third_person := true
 var avatar: CozyCharacter
 var _cam_offset := Vector3.ZERO
 var _was_on_floor := true
+var _fall_peak_y := 0.0
+var health := Health.new()
+## Knockback applied on top of walking for a short moment after a hit.
+var _knockback := Vector3.ZERO
+var _touch_swim_up := 0.0
+var creatures: CreatureManager
+const ATTACK_COOLDOWN_MS := 350
+var _last_attack_ms := -100000
 
 @onready var camera: Camera3D = $Head/Camera3D
 @onready var head: Node3D = $Head
@@ -86,6 +94,10 @@ func _ready() -> void:
 		GameState.creative_changed.connect(_on_creative_changed)
 	if not GameState.mode_changed.is_connected(_on_mode_changed):
 		GameState.mode_changed.connect(_on_mode_changed)
+	health.set_enabled(GameState.is_survival())
+	health.hurt.connect(_on_hurt)
+	health.fainted.connect(_on_fainted)
+	_fall_peak_y = global_position.y
 
 
 func _apply_body_proportions() -> void:
@@ -138,11 +150,52 @@ func _on_mode_changed(_mode: int) -> void:
 	cancel_mining()
 	if GameState.is_survival() and GameState.flying:
 		GameState.set_flying(false)
+	health.set_enabled(GameState.is_survival())
+
+
+## Hurts the player (Survival only). `from` pushes the player away from a source.
+func take_damage(amount: int, source: String, from := Vector3.INF) -> bool:
+	if not health.damage(amount, source):
+		return false
+	if from != Vector3.INF:
+		var away := global_position - from
+		away.y = 0.0
+		if away.length() > 0.01:
+			_knockback = away.normalized() * 6.0
+			velocity.y = maxf(velocity.y, 3.5)
+	return true
+
+
+func _on_hurt(amount: int, source: String) -> void:
+	cancel_mining()
+	if avatar:
+		avatar.play_action("hurt")
+	_play_sfx("res://assets/audio/impact/impactGeneric_light_003.ogg")
+	GameState.notify_player_hurt(amount, source)
+
+
+func _on_fainted(_source: String) -> void:
+	## Kid-friendly: keep the bag, wake up at the start with full hearts.
+	call_deferred("_respawn_after_faint")
+
+
+func _respawn_after_faint() -> void:
+	global_position = world.spawn_position()
+	velocity = Vector3.ZERO
+	_knockback = Vector3.ZERO
+	_fall_peak_y = global_position.y
+	cancel_mining()
+	health.reset()
+	GameState.toast("You fainted! Back at the start — your bag is safe.")
+	GameState.notify_player_fainted()
 
 
 func _input(event: InputEvent) -> void:
 	## Handle break/place while captured so HUD decorations can't swallow center clicks.
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		return
+	if event.is_action_pressed("break_block") and try_attack():
+		get_viewport().set_input_as_handled()
 		return
 	if event.is_action_pressed("break_block"):
 		_break_held = true
@@ -182,6 +235,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			cancel_mining()
 	# Visible-mouse fallback (e.g. after UI) — still allow place/break off-HUD.
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		if event.is_action_pressed("break_block") and try_attack():
+			return
 		if event.is_action_pressed("break_block"):
 			_break_held = true
 			if GameState.is_creative():
@@ -210,7 +265,13 @@ func _physics_process(delta: float) -> void:
 	else:
 		_physics_walk(delta)
 
+	if _knockback != Vector3.ZERO:
+		velocity.x += _knockback.x
+		velocity.z += _knockback.z
+		_knockback = _knockback.move_toward(Vector3.ZERO, 30.0 * delta)
 	move_and_slide()
+	_track_fall(flying)
+	health.tick(delta)
 	_clamp_to_boundary()
 	_update_camera_rig()
 	_update_avatar(delta, flying)
@@ -220,8 +281,35 @@ func _physics_process(delta: float) -> void:
 		world.collect_nearby_drops(inventory, global_position + Vector3(0, 1.0, 0))
 
 
+func _track_fall(flying: bool) -> void:
+	var on_floor := is_on_floor()
+	if flying or in_water():
+		_fall_peak_y = global_position.y
+	elif not on_floor:
+		_fall_peak_y = maxf(_fall_peak_y, global_position.y)
+	elif not _was_on_floor:
+		var dmg := Health.fall_damage(_fall_peak_y - global_position.y)
+		if dmg > 0:
+			take_damage(dmg, "fall")
+	if on_floor:
+		_fall_peak_y = global_position.y
+	_was_on_floor = on_floor
+
+
+func in_water() -> bool:
+	var p := global_position
+	return world != null and BlockDB.is_liquid(world.get_block(floori(p.x), floori(p.y + 0.3), floori(p.z)))
+
+
 func _physics_walk(delta: float) -> void:
-	if not is_on_floor():
+	var swimming := in_water()
+	if swimming:
+		# Gentle sink; hold jump to paddle up and climb out.
+		velocity.y = maxf(velocity.y - gravity * 0.25 * delta, -2.0)
+		if Input.is_action_pressed("jump") or _touch_swim_up > 0.0:
+			velocity.y = 3.2
+		_touch_swim_up = maxf(_touch_swim_up - delta, 0.0)
+	elif not is_on_floor():
 		velocity.y -= gravity * delta
 
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
@@ -349,6 +437,7 @@ func _clamp_to_boundary() -> void:
 func reset_to_spawn() -> void:
 	global_position = world.spawn_position()
 	velocity = Vector3.ZERO
+	_fall_peak_y = global_position.y
 	cancel_mining()
 	GameState.toast("Back to start!")
 
@@ -356,17 +445,20 @@ func reset_to_spawn() -> void:
 ## After loading blocks under a saved pose: lift out of anything solid, and
 ## fall back to spawn if the pose left the world.
 func ensure_not_stuck() -> void:
-	var size := world.world_size_blocks()
+	var lo := Vector3(world.world_min_block())
+	var hi := Vector3(world.world_max_block())
 	var p := global_position
-	if p.x < 0.0 or p.z < 0.0 or p.x >= size.x or p.z >= size.z or p.y < -4.0 or p.y > size.y + 8:
+	if p.x < lo.x or p.z < lo.z or p.x >= hi.x or p.z >= hi.z or p.y < -4.0 or p.y > hi.y + 8:
 		global_position = world.spawn_position()
 		return
+	world.mesh_around(p, 1)
 	var bx := floori(p.x)
 	var bz := floori(p.z)
 	var feet := floori(p.y + 0.05)
 	if BlockDB.is_solid(world.get_block(bx, feet, bz)) or BlockDB.is_solid(world.get_block(bx, feet + 1, bz)):
 		global_position.y = float(world.surface_y(bx, bz) + 1) + 0.05
 	velocity = Vector3.ZERO
+	_fall_peak_y = global_position.y
 
 
 func player_aabb() -> AABB:
@@ -619,11 +711,48 @@ func set_touch_fly_vertical(v: float) -> void:
 func touch_jump() -> void:
 	if GameState.flying and GameState.is_creative():
 		return
-	if is_on_floor():
+	if in_water():
+		_touch_swim_up = 0.35
+	elif is_on_floor():
 		velocity.y = JUMP_VELOCITY
 
 
+## Critter under the crosshair within reach (blocks in the way stop it).
+func creature_in_crosshair() -> Creature:
+	if creatures == null or not is_inside_tree():
+		return null
+	var from := camera.global_position
+	var to := from + -camera.global_transform.basis.z * (REACH + _cam_offset.length())
+	var q := PhysicsRayQueryParameters3D.create(from, to, 1 | Creature.HITBOX_LAYER, [get_rid()])
+	q.collide_with_areas = true
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return null
+	var c := Creature.from_collider(hit["collider"])
+	if c == null or head.global_position.distance_to(hit["position"]) > REACH + 0.5:
+		return null
+	return c
+
+
+## Hits the critter under the crosshair. Returns true if something was hit.
+func try_attack() -> bool:
+	var c := creature_in_crosshair()
+	if c == null:
+		return false
+	var now := Time.get_ticks_msec()
+	if now - _last_attack_ms < ATTACK_COOLDOWN_MS:
+		return true
+	_last_attack_ms = now
+	cancel_mining()
+	_swing()
+	creatures.player_hit(c, Creature.weapon_damage(inventory.selected_item()), global_position)
+	_play_sfx("res://assets/audio/impact/impactGeneric_light_001.ogg")
+	return true
+
+
 func touch_break() -> void:
+	if not _touch_mining and try_attack():
+		return
 	if GameState.is_creative():
 		try_break()
 	else:

@@ -189,7 +189,7 @@ func _place_pathside(props: Node3D) -> void:
 func _place_multimesh_fill(props: Node3D) -> void:
 	## Batched silhouette trees + flower dots for far/mid fill (tablet-friendly).
 	var gy := float(VoxelWorld.GROUND_Y + 1)
-	_add_mm_trees(props, gy)
+	_add_mm_trees(props)
 	_add_mm_flowers(props, gy)
 	_add_mm_bushes(props, gy)
 
@@ -213,7 +213,7 @@ func _mm_material(color: Color) -> StandardMaterial3D:
 	return m
 
 
-func _add_mm_trees(parent: Node3D, gy: float) -> void:
+func _add_mm_trees(parent: Node3D) -> void:
 	# Canopies
 	var canopy := SphereMesh.new()
 	canopy.radius = 1.1
@@ -228,7 +228,10 @@ func _add_mm_trees(parent: Node3D, gy: float) -> void:
 	var positions: Array[Vector3] = []
 	# Backdrop ring strictly outside the playable boundary: it frames the
 	# horizon but can never look like an interactive (unbreakable) tree.
-	var size := float(VoxelWorld.WORLD_CHUNKS.x * VoxelChunk.SIZE)
+	# Just under the water surface so lakes are never covered by the skirt.
+	var skirt_y := float(TerrainGen.SEA_Y) + 0.9
+	var lo := float(VoxelWorld.CHUNK_MIN.x * VoxelChunk.SIZE)
+	var size := float((VoxelWorld.CHUNK_MAX.x - VoxelWorld.CHUNK_MIN.x) * VoxelChunk.SIZE)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7341
 	var ring_steps := int(size * 4.0 / 3.0)
@@ -244,8 +247,8 @@ func _add_mm_trees(parent: Node3D, gy: float) -> void:
 				1: p = Vector2(size + off, u)
 				2: p = Vector2(size - u, size + off)
 				_: p = Vector2(-off, size - u)
-			positions.append(Vector3(p.x, gy - 0.5, p.y))
-	_add_backdrop_ground(parent, gy - 0.5, size)
+			positions.append(Vector3(p.x + lo, skirt_y, p.y + lo))
+	_add_backdrop_ground(parent, skirt_y, size, lo)
 	var mm_c := MultiMeshInstance3D.new()
 	mm_c.name = "MM_TreeCanopies"
 	var mm1 := MultiMesh.new()
@@ -258,6 +261,8 @@ func _add_mm_trees(parent: Node3D, gy: float) -> void:
 		var xf := Transform3D(basis, positions[i] + Vector3(0.0, 2.0, 0.0))
 		mm1.set_instance_transform(i, xf)
 	mm_c.multimesh = mm1
+	# Headless (dummy renderer) MultiMeshes do not keep transforms.
+	mm_c.set_meta("positions", positions)
 	mm_c.material_override = _mm_material(Color(0.34, 0.78, 0.38))
 	parent.add_child(mm_c)
 	var mm_t := MultiMeshInstance3D.new()
@@ -274,14 +279,14 @@ func _add_mm_trees(parent: Node3D, gy: float) -> void:
 	parent.add_child(mm_t)
 
 
-func _add_backdrop_ground(parent: Node3D, y: float, size: float) -> void:
+func _add_backdrop_ground(parent: Node3D, y: float, size: float, lo: float) -> void:
 	## Grass skirt beyond the world edge (sits below the voxel surface inside).
 	var mi := MeshInstance3D.new()
 	mi.name = "BackdropGround"
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(size + 160.0, size + 160.0)
 	mi.mesh = plane
-	mi.position = Vector3(size * 0.5, y, size * 0.5)
+	mi.position = Vector3(lo + size * 0.5, y, lo + size * 0.5)
 	mi.material_override = _mm_material(Color(0.42, 0.74, 0.36))
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mi)

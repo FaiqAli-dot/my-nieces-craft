@@ -14,6 +14,10 @@ var _mesh_instance: MeshInstance3D
 var _body: StaticBody3D
 var _collision: CollisionShape3D
 var dirty: bool = true
+## True once a mesh/collider has been built at least once.
+var meshed := false
+## Edited by the player since generation (only these chunks are saved).
+var modified := false
 
 func _init() -> void:
 	_blocks = PackedByteArray()
@@ -106,94 +110,151 @@ static func face_winding_is_godot_front(outward: Vector3, verts: Array, flip: bo
 	return face_winding_normal(verts, flip).dot(outward) < -0.5
 
 
+## Face data flattened once for the mesher: per face, the 6 triangle corners,
+## their UV corner indices, normal, shade and atlas slot (0 top, 1 bottom, 2 side).
+static var _mesh_faces: Array = []
+
+
+static func _mesher_faces() -> Array:
+	if not _mesh_faces.is_empty():
+		return _mesh_faces
+	for f in face_templates():
+		var order: Array = face_tri_order(bool(f.get("flip", false)))
+		var corners := PackedVector3Array()
+		var uv_idx := PackedInt32Array()
+		for oi in order:
+			corners.append(f["d"][oi])
+			uv_idx.append(oi)
+		var key := str(f["key"])
+		_mesh_faces.append({
+			"corners": corners,
+			"uv_idx": uv_idx,
+			"n": f["n"],
+			"shade": f["shade"],
+			"slot": 0 if key == "top" else (1 if key == "bottom" else 2),
+		})
+	return _mesh_faces
+
+
+## Neighbour chunk blocks for faces in face_templates() order
+## (up, down, -z, +z, -x, +x); empty when there is no chunk (treated as air).
+func _neighbour_blocks() -> Array:
+	var out := []
+	for d in [Vector3i(0, 1, 0), Vector3i(0, -1, 0), Vector3i(0, 0, -1), Vector3i(0, 0, 1), Vector3i(-1, 0, 0), Vector3i(1, 0, 0)]:
+		var c: VoxelChunk = world.chunks.get(chunk_pos + d) if world else null
+		out.append(c._blocks if c else PackedByteArray())
+	return out
+
+
+func is_empty() -> bool:
+	return _blocks.count(0) == _blocks.size()
+
+
+func has_geometry() -> bool:
+	return _mesh_instance != null and _mesh_instance.mesh != null
+
+
 func rebuild_mesh() -> void:
 	if not dirty:
 		return
 	dirty = false
+	meshed = true
 	rebuild_count += 1
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var atlas := BlockDB.get_atlas_texture()
-	# Per-face shade — enough contrast to read form without crushing light wood to charcoal
-	var faces := face_templates()
-	var collider := ConcavePolygonShape3D.new()
-	var coll_faces: PackedVector3Array = PackedVector3Array()
-	var vert_count := 0
-
+	if is_empty():
+		_mesh_instance.mesh = null
+		_collision.shape = null
+		return
+	var faces := _mesher_faces()
+	var nbr := _neighbour_blocks()
+	var solid_lut := BlockDB.solid_lut
+	var transparent_lut := BlockDB.transparent_lut
+	var uv_lut: Array = BlockDB.uv_lut
+	var grass_id := BlockDB.grass_id
+	var b := _blocks
+	var layer := SIZE * SIZE
+	var steps := PackedInt32Array([layer, -layer, -SIZE, SIZE, -1, 1])
+	var wraps := PackedInt32Array([-(SIZE - 1) * layer, (SIZE - 1) * layer, (SIZE - 1) * SIZE, -(SIZE - 1) * SIZE, SIZE - 1, -(SIZE - 1)])
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var uvs := PackedVector2Array()
+	var coll := PackedVector3Array()
+	var base_x := chunk_pos.x * SIZE
+	var base_z := chunk_pos.z * SIZE
+	var corner_uv := [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
+	var idx := -1
 	for y in SIZE:
 		for z in SIZE:
 			for x in SIZE:
-				var id := get_block_local(x, y, z)
+				idx += 1
+				var id := b[idx]
 				if id == 0:
 					continue
+				var edge := int(y == SIZE - 1) | int(y == 0) << 1 | int(z == 0) << 2 \
+					| int(z == SIZE - 1) << 3 | int(x == 0) << 4 | int(x == SIZE - 1) << 5
 				var origin := Vector3(x, y, z)
-				for f in faces:
-					var nx: int = x + int(f["ox"])
-					var ny: int = y + int(f["oy"])
-					var nz: int = z + int(f["oz"])
-					var neighbor := 0
-					if in_bounds(nx, ny, nz):
-						neighbor = get_block_local(nx, ny, nz)
+				var solid := solid_lut[id] == 1
+				for fi in 6:
+					var nb := 0
+					if edge & (1 << fi):
+						var other: PackedByteArray = nbr[fi]
+						if not other.is_empty():
+							nb = other[idx + wraps[fi]]
 					else:
-						neighbor = world.get_block(
-							chunk_pos.x * SIZE + nx,
-							chunk_pos.y * SIZE + ny,
-							chunk_pos.z * SIZE + nz
-						)
-					if neighbor != 0 and not BlockDB.is_transparent(neighbor):
+						nb = b[idx + steps[fi]]
+					# Block textures are fully opaque, so faces between identical
+					# transparent blocks (leaf canopies, water, glass) are never visible.
+					if nb != 0 and (transparent_lut[nb] == 0 or nb == id):
 						continue
-					var uv_rect: Rect2 = BlockDB.get_face_uv(id, str(f["key"]))
-					var inset_x := uv_rect.size.x * (0.5 / 64.0)
-					var inset_y := uv_rect.size.y * (0.5 / 64.0)
-					var u0 := uv_rect.position.x + inset_x
-					var u1 := uv_rect.position.x + uv_rect.size.x - inset_x
-					var v0 := uv_rect.position.y + inset_y
-					var v1 := uv_rect.position.y + uv_rect.size.y - inset_y
-					var verts: Array = f["d"]
-					var uvs := [
-						Vector2(u0, v1),
-						Vector2(u1, v1),
-						Vector2(u1, v0),
-						Vector2(u0, v0),
-					]
+					var f: Dictionary = faces[fi]
+					var r: Rect2 = uv_lut[id][f["slot"]]
+					var ix := r.size.x * (0.5 / 64.0)
+					var iy := r.size.y * (0.5 / 64.0)
+					var u0 := r.position.x + ix
+					var u1 := r.position.x + r.size.x - ix
+					var v0 := r.position.y + iy
+					var v1 := r.position.y + r.size.y - iy
+					corner_uv[0] = Vector2(u0, v1)
+					corner_uv[1] = Vector2(u1, v1)
+					corner_uv[2] = Vector2(u1, v0)
+					corner_uv[3] = Vector2(u0, v0)
 					var shade: Color = f["shade"]
-					# Gentle world-space grass patches (cheerful tonal variation, not speckles)
-					if str(f["key"]) == "top" and BlockDB.get_block_name(id) == "grass":
-						var wx := chunk_pos.x * SIZE + x
-						var wz := chunk_pos.z * SIZE + z
+					if fi == 0 and id == grass_id:
+						# Gentle world-space grass patches (tonal variation, not speckles).
+						var wx := base_x + x
+						var wz := base_z + z
 						var patch := 0.94 + 0.10 * sin(float(wx) * 0.31) * cos(float(wz) * 0.27)
 						patch += 0.04 * sin(float(wx + wz) * 0.17)
 						shade = Color(shade.r * patch, shade.g * minf(patch * 1.02, 1.08), shade.b * patch)
-					var flip := bool(f.get("flip", false))
-					var order: Array = face_tri_order(flip)
-					for oi in order:
-						st.set_normal(f["n"])
-						st.set_color(shade)
-						st.set_uv(uvs[oi])
-						st.add_vertex(origin + verts[oi])
-						vert_count += 1
-					if BlockDB.is_solid(id):
-						for oi in order:
-							coll_faces.append(origin + verts[oi])
+					var corners: PackedVector3Array = f["corners"]
+					var uv_idx: PackedInt32Array = f["uv_idx"]
+					var n: Vector3 = f["n"]
+					for k in 6:
+						var p := origin + corners[k]
+						verts.append(p)
+						normals.append(n)
+						colors.append(shade)
+						uvs.append(corner_uv[uv_idx[k]])
+						if solid:
+							coll.append(p)
 
-	if vert_count == 0:
+	if verts.is_empty():
 		_mesh_instance.mesh = null
 	else:
-		var mesh: ArrayMesh = st.commit()
-		var mat := StandardMaterial3D.new()
-		mat.albedo_texture = atlas
-		mat.vertex_color_use_as_albedo = true
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-		mat.alpha_scissor_threshold = 0.05
-		mat.cull_mode = BaseMaterial3D.CULL_BACK
-		if mesh != null:
-			mesh.surface_set_material(0, mat)
-			_mesh_instance.mesh = mesh
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = verts
+		arrays[Mesh.ARRAY_NORMAL] = normals
+		arrays[Mesh.ARRAY_COLOR] = colors
+		arrays[Mesh.ARRAY_TEX_UV] = uvs
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		mesh.surface_set_material(0, BlockDB.chunk_material())
+		_mesh_instance.mesh = mesh
 
-	if coll_faces.size() > 0:
-		collider.set_faces(coll_faces)
+	if coll.size() > 0:
+		var collider := ConcavePolygonShape3D.new()
+		collider.set_faces(coll)
 		_collision.shape = collider
 		_collision.disabled = false
 	else:
@@ -207,4 +268,11 @@ func to_bytes() -> PackedByteArray:
 func from_bytes(data: PackedByteArray) -> void:
 	if data.size() == _blocks.size():
 		_blocks = data.duplicate()
+		dirty = true
+
+
+## Generator fast path: replaces the whole block array (no modified bookkeeping).
+func set_raw_blocks(data: PackedByteArray) -> void:
+	if data.size() == _blocks.size():
+		_blocks = data
 		dirty = true

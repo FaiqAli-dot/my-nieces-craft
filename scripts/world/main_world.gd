@@ -10,7 +10,15 @@ const AUTOSAVE_SEC := 45.0
 var autosave_enabled := false
 var _autosave_timer: Timer
 
+var creatures: CreatureManager
+
+
 func _ready() -> void:
+	world.focus = player
+	creatures = CreatureManager.new()
+	creatures.setup(world, player)
+	add_child(creatures)
+	player.creatures = creatures
 	_setup_environment()
 	var dresser := MeadowDresser.new()
 	dresser.dress(self)
@@ -53,6 +61,10 @@ func _ready() -> void:
 		var s2shots := Node.new()
 		s2shots.set_script(load("res://scripts/devtools/s2_shots.gd"))
 		add_child(s2shots)
+	if OS.get_environment("COZY_CREATURE_SHOTS") == "1":
+		var creature_shots := Node.new()
+		creature_shots.set_script(load("res://scripts/devtools/creature_shots.gd"))
+		add_child(creature_shots)
 	if OS.get_environment("COZY_S2_DEMO") == "1":
 		var s2demo := Node.new()
 		s2demo.set_script(load("res://scripts/devtools/s2_demo_driver.gd"))
@@ -124,11 +136,13 @@ func _restore_saved_pose() -> void:
 		player.global_position = Vector3(float(pos[0]), float(pos[1]), float(pos[2]))
 		player.look_yaw = float(p.get("yaw", 0.0))
 		player.look_pitch = clampf(float(p.get("pitch", 0.0)), -1.5, 1.5)
+	if typeof(p.get("health")) == TYPE_DICTIONARY and player.health.enabled:
+		player.health.load_dict(p["health"])
 
 
 func player_state() -> Dictionary:
 	var p := player.global_position
-	return {"pos": [p.x, p.y, p.z], "yaw": player.look_yaw, "pitch": player.look_pitch}
+	return {"pos": [p.x, p.y, p.z], "yaw": player.look_yaw, "pitch": player.look_pitch, "health": player.health.to_dict()}
 
 
 ## Writes the session save. No-op outside title-screen sessions.

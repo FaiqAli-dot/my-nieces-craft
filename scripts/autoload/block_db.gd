@@ -13,11 +13,63 @@ var _atlas: ImageTexture
 var _atlas_rects: Dictionary = {} # block_name -> {face: Rect2}
 var _validation_errors: Array[String] = []
 
+## Per-id flags/UVs for the chunk mesher's inner loop (index = block id).
+var solid_lut := PackedByteArray()
+var transparent_lut := PackedByteArray()
+var liquid_lut := PackedByteArray()
+## [top, bottom, side] Rect2 per id.
+var uv_lut: Array = []
+var grass_id := 0
+var _material: StandardMaterial3D
+
+
 func _ready() -> void:
 	_load_blocks()
 	_load_items()
 	_validate_defs()
 	_build_atlas()
+	_build_luts()
+
+
+func _build_luts() -> void:
+	var n := 256
+	solid_lut.resize(n)
+	transparent_lut.resize(n)
+	liquid_lut.resize(n)
+	solid_lut.fill(0)
+	transparent_lut.fill(1)
+	liquid_lut.fill(0)
+	uv_lut.resize(n)
+	for id in n:
+		uv_lut[id] = [Rect2(0, 0, 1, 1), Rect2(0, 0, 1, 1), Rect2(0, 0, 1, 1)]
+	for id in _by_id.keys():
+		var i := int(id)
+		if i < 0 or i >= n:
+			continue
+		var def: Dictionary = _by_id[id]
+		solid_lut[i] = 1 if bool(def.get("solid", false)) else 0
+		transparent_lut[i] = 1 if (i == 0 or bool(def.get("transparent", false))) else 0
+		liquid_lut[i] = 1 if bool(def.get("liquid", false)) else 0
+		uv_lut[i] = [get_face_uv(i, "top"), get_face_uv(i, "bottom"), get_face_uv(i, "side")]
+	grass_id = get_id("grass")
+
+
+func is_liquid(id: int) -> bool:
+	return id > 0 and id < liquid_lut.size() and liquid_lut[id] == 1
+
+
+## One material shared by every chunk (was one per rebuild).
+func chunk_material() -> StandardMaterial3D:
+	if _material == null:
+		_material = StandardMaterial3D.new()
+		_material.albedo_texture = _atlas
+		_material.vertex_color_use_as_albedo = true
+		_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		_material.alpha_scissor_threshold = 0.05
+		_material.cull_mode = BaseMaterial3D.CULL_BACK
+	return _material
 
 
 func _load_blocks() -> void:
@@ -100,6 +152,8 @@ func get_block_name(id: int) -> String:
 
 
 func is_solid(id: int) -> bool:
+	if id >= 0 and id < solid_lut.size():
+		return solid_lut[id] == 1
 	return bool(get_block_by_id(id).get("solid", false))
 
 
@@ -110,6 +164,8 @@ func is_breakable(id: int) -> bool:
 func is_transparent(id: int) -> bool:
 	if id == 0:
 		return true
+	if id > 0 and id < transparent_lut.size():
+		return transparent_lut[id] == 1
 	return bool(get_block_by_id(id).get("transparent", false))
 
 
@@ -255,6 +311,7 @@ func _build_atlas() -> void:
 		file_index[files[i]] = i
 
 	_atlas = ImageTexture.create_from_image(atlas_img)
+	_material = null
 	var atlas_w := float(files.size())
 	for key in _by_name.keys():
 		var texs: Dictionary = _by_name[key].get("textures", {})
