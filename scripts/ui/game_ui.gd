@@ -630,6 +630,7 @@ func _on_panel_opened(id: String) -> void:
 	_sync_panel_flags()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_layout_toast_for_panels()
+	_layout_hint_for_panels()
 	if id == "inventory":
 		_refresh_inventory_panel()
 	elif id == "craft":
@@ -641,28 +642,41 @@ func _on_panel_opened(id: String) -> void:
 func _on_panel_closed(_id: String) -> void:
 	_sync_panel_flags()
 	_layout_toast_for_panels()
+	_layout_hint_for_panels()
 
 
 func _on_panels_all_closed() -> void:
 	_sync_panel_flags()
 	_layout_toast_for_panels()
+	_layout_hint_for_panels()
 	_restore_play_mouse()
 
 
 func _layout_toast_for_panels() -> void:
-	## Keep toast away from the centered Build catalog header.
+	## Keep toast off the centered Build catalog (header and Close footer).
 	if toast_label == null:
 		return
 	if panels.is_open("catalog"):
-		toast_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-		toast_label.offset_top = -96
-		toast_label.offset_bottom = -56
+		# Sit under the top chips, above the catalog title — never over Build/Close.
+		toast_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		toast_label.offset_top = 64
+		toast_label.offset_bottom = 104
 	else:
 		toast_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 		toast_label.offset_top = -150
 		toast_label.offset_bottom = -110
 	toast_label.offset_left = -260
 	toast_label.offset_right = 260
+
+
+func _layout_hint_for_panels() -> void:
+	## Survival meadow hint sits near the catalog title — hide while Build is open.
+	if hint_label == null:
+		return
+	if panels.is_open("catalog"):
+		hint_label.visible = false
+	else:
+		hint_label.visible = GameState.is_survival()
 
 
 func _restore_play_mouse() -> void:

@@ -329,10 +329,20 @@ func _on_card_input(btn: Button, entry: Dictionary, ev: InputEvent) -> void:
 
 
 func _screen_over_blocking_ui(screen: Vector2) -> bool:
-	var root := get_viewport().get_gui_at_point(screen) as Control
-	if root == null:
+	## Prefer true hit-testing; fall back to catalog rect (Godot 4.x API differs by minor).
+	if get_global_rect().has_point(screen):
+		return true
+	var vp := get_viewport()
+	if vp == null:
 		return false
-	var n: Node = root
+	var hit: Control = null
+	if vp.has_method("gui_find_control"):
+		hit = vp.call("gui_find_control", screen) as Control
+	elif vp.has_method("gui_get_control_at_position"):
+		hit = vp.call("gui_get_control_at_position", screen) as Control
+	if hit == null:
+		return false
+	var n: Node = hit
 	while n:
 		if n == self:
 			return true

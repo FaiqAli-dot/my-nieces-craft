@@ -60,6 +60,10 @@ func _run() -> void:
 	_ui.toggle_build_catalog()
 	await get_tree().process_frame
 	await get_tree().process_frame
+	if _ui.toast_label:
+		_ui.toast_label.text = ""
+	_ui._layout_toast_for_panels()
+	await get_tree().process_frame
 	await _shot("01_catalog_open_%s.png" % tag)
 
 	# Select dirt for tap-to-place preview — clear air cell above grass
@@ -92,13 +96,14 @@ func _run() -> void:
 	await get_tree().process_frame
 	# Extra history entry so Undo is enabled; pop once so Redo is also enabled.
 	_player.build_history.push(BuildHistory.block_place(Vector3i(34, VoxelWorld.GROUND_Y + 1, 32), "dirt", BlockDB.place_block_id("dirt"), 0))
-	var _tmp := _player.build_history.pop_undo()
+	var _tmp: Dictionary = _player.build_history.pop_undo()
 	_ui.toggle_build_catalog()
 	await get_tree().process_frame
 	_ui.build_catalog.refresh()
 	await get_tree().process_frame
-	# Force busy session so Cancel shows enabled; keep toast away from header.
-	GameState.toast("Back to start!")
+	# Clear any mode/toast text so it cannot cover Build title or Close.
+	if _ui.toast_label:
+		_ui.toast_label.text = ""
 	_ui._layout_toast_for_panels()
 	await get_tree().process_frame
 	await _shot("04_after_place_catalog_%s.png" % tag)
@@ -119,11 +124,16 @@ func _run() -> void:
 	GameState.set_game_mode(GameState.Mode.SURVIVAL)
 	_player.inventory.clear()
 	_player.inventory.add_item("cobble", 3)
+	if _ui.toast_label:
+		_ui.toast_label.text = ""
 	_ui.toggle_build_catalog()
 	await get_tree().process_frame
 	_ui.build_catalog._category = BuildCatalog.CAT_BLOCKS
 	_ui.build_catalog.refresh()
 	_ui.build_catalog.set_selected_entry(BuildCatalog.block_entry("cobble"))
+	_ui._layout_toast_for_panels()
+	if _ui.toast_label:
+		_ui.toast_label.text = ""
 	await get_tree().process_frame
 	await _shot("05_survival_resources_%s.png" % tag)
 	await _shot("05b_survival_cost_%s.png" % tag)

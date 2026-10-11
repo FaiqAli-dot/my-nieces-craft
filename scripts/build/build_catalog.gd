@@ -141,5 +141,5 @@ static func survival_count_text(item_id: String, inventory: Inventory) -> String
 		return ""
 	var n := inventory.count_of(item_id)
 	if n <= 0:
-		return "Need more"
-	return "x%d" % n
+		return "Costs 1 — need more"
+	return "Costs 1 — have x%d" % n

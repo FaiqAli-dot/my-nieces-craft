@@ -92,7 +92,7 @@ func _run() -> void:
 		_house._set_selected(iid)
 	# Seed history so Undo/Redo affordances are meaningful in the catalog tool row.
 	_house.build_history.push(BuildHistory.furniture_place("shot_hist", "lamp", Vector2i(6, 6), 0))
-	var _hu := _house.build_history.pop_undo()
+	var _hu: Dictionary = _house.build_history.pop_undo()
 	ui.open_catalog()
 	await get_tree().process_frame
 	ui.build_catalog.refresh()
