@@ -91,7 +91,7 @@ func refresh(inventory: Inventory) -> void:
 		else:
 			btn.icon = BlockDB.icon_texture(item)
 			btn.expand_icon = true
-			btn.text = "" if GameState.creative_mode else str(count)
+			btn.text = "" if GameState.is_creative() else str(count)
 		_style_slot(btn, i == _selected)
 
 
