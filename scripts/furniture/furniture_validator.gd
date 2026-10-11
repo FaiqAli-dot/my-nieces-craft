@@ -18,31 +18,32 @@ enum Reason {
 
 
 static func reason_text(r: int) -> String:
+	## Short, kid-friendly copy for toasts / HUD.
 	match r:
 		Reason.OK:
 			return "ok"
 		Reason.UNKNOWN_DEF:
-			return "Unknown furniture"
+			return "Hmm, that furniture is missing"
 		Reason.OUT_OF_BOUNDS:
-			return "Outside the room"
+			return "That doesn't fit in the room"
 		Reason.OVERLAP:
 			return "Something is already there"
 		Reason.BAD_SURFACE:
-			return "Need a clear floor"
+			return "Need a clear floor spot"
 		Reason.NO_PERMISSION:
-			return "You can't decorate here"
+			return "Only the owner can decorate right now"
 		Reason.HOUSE_MISMATCH:
 			return "Wrong house"
 		Reason.STALE_OP:
-			return "Out of date — try again"
+			return "Oops — try that again"
 		Reason.DUPLICATE_OP:
 			return "Already done"
 		Reason.RATE_LIMIT:
 			return "Slow down a little"
 		Reason.INVALID_PAYLOAD:
-			return "Bad request"
+			return "That didn't work — try again"
 		_:
-			return "Can't place"
+			return "Can't place there"
 
 
 static func validate_placement(

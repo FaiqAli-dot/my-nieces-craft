@@ -609,7 +609,8 @@ func _highlight_size_buttons() -> void:
 
 func _request_house_size(tier: String) -> void:
 	panels.close("size")
-	if not NetClient.current_house.is_empty() and NetClient.connection_status() == "connected":
+	# Online networked house → server; offline solo → local apply + persist.
+	if world and world.has_method("is_online_decorating") and world.is_online_decorating():
 		if not _is_owner:
 			GameState.toast("Only the owner can change house size")
 			return
