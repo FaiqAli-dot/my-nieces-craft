@@ -7,10 +7,17 @@ const FLY_SPEED := 6.5
 const JUMP_VELOCITY := 6.2
 const MOUSE_SENS := 0.0024
 const REACH := 6.0
+## JE-style short melee reach for entities (blocks keep REACH).
+const ATTACK_REACH := 3.0
+const ATTACK_DAMAGE := 4
+const ATTACK_COOLDOWN := 0.35
 ## Standing height ~1.8 blocks (Minecraft-like) so capsule matches voxel doors.
 const CAPSULE_HEIGHT := 1.8
 const CAPSULE_RADIUS := 0.38
 const EYE_HEIGHT := 1.62
+## Physics layers: 1 world, 2 player, 3 drops, 4 mobs.
+const RAY_MASK_WORLD := 1
+const RAY_MASK_MOBS := 8
 
 @export var world_path: NodePath
 @export var ui_path: NodePath
@@ -30,6 +37,7 @@ var _mine_target := Vector3i(-9999, -9999, -9999)
 var _mine_progress := 0.0
 var _mine_needed := 0.0
 var _touch_mining := false
+var _attack_cooldown := 0.0
 
 @onready var camera: Camera3D = $Head/Camera3D
 @onready var head: Node3D = $Head
@@ -50,6 +58,7 @@ func _ready() -> void:
 	ui = get_node(ui_path)
 	_apply_body_proportions()
 	ray.target_position = Vector3(0, 0, -REACH)
+	ray.collision_mask = RAY_MASK_WORLD | RAY_MASK_MOBS
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_setup_highlights()
 	floor_snap_length = 0.2
@@ -124,18 +133,41 @@ func _on_mode_changed(_mode: int) -> void:
 		GameState.set_flying(false)
 
 
+func _touch_hud_active() -> bool:
+	## When the on-screen touch HUD is up, break/place come from ActionButtons —
+	## never from emulated LMB produced by look/move fingers.
+	if ui == null:
+		return false
+	var tc = ui.get("touch_controls")
+	return tc != null and tc.visible
+
+
+func _begin_break_action() -> void:
+	## Explicit intentional break/attack (desktop LMB or touch Break).
+	if _try_attack():
+		return
+	_break_held = true
+	if GameState.is_creative():
+		try_break()
+
+
+func _end_break_action() -> void:
+	_break_held = false
+	cancel_mining()
+
+
 func _input(event: InputEvent) -> void:
 	## Handle break/place while captured so HUD decorations can't swallow center clicks.
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		return
+	# Touch HUD owns break/place; ignore mouse (incl. touch→mouse emulation).
+	if _touch_hud_active():
+		return
 	if event.is_action_pressed("break_block"):
-		_break_held = true
-		if GameState.is_creative():
-			try_break()
+		_begin_break_action()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_released("break_block"):
-		_break_held = false
-		cancel_mining()
+		_end_break_action()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("place_block"):
 		try_place()
@@ -163,14 +195,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			inventory.select(i)
 			cancel_mining()
 	# Visible-mouse fallback (e.g. after UI) — still allow place/break off-HUD.
-	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+	# Skip when touch HUD is active so look/joystick emulation cannot mine.
+	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED and not _touch_hud_active():
 		if event.is_action_pressed("break_block"):
-			_break_held = true
-			if GameState.is_creative():
-				try_break()
+			_begin_break_action()
 		if event.is_action_released("break_block"):
-			_break_held = false
-			cancel_mining()
+			_end_break_action()
 		if event.is_action_pressed("place_block"):
 			try_place()
 
@@ -185,6 +215,9 @@ func _physics_process(delta: float) -> void:
 
 	head.rotation.y = look_yaw
 	camera.rotation.x = look_pitch
+
+	if _attack_cooldown > 0.0:
+		_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
 
 	var flying := GameState.flying and GameState.is_creative()
 	if flying:
@@ -269,6 +302,9 @@ func _update_targeting() -> void:
 	place_preview.visible = false
 	if not ray.is_colliding():
 		return
+	# Prefer entity aim: looking at a monster must not also treat it as a block.
+	if _collider_monster(ray.get_collider()) != null:
+		return
 	var hit_pos := ray.get_collision_point()
 	var normal := ray.get_collision_normal()
 	# Target block slightly inside surface
@@ -302,6 +338,8 @@ func _tint_highlight_for_mining() -> void:
 func get_target_block() -> Vector3i:
 	if not ray.is_colliding():
 		return Vector3i(-9999, -9999, -9999)
+	if _collider_monster(ray.get_collider()) != null:
+		return Vector3i(-9999, -9999, -9999)
 	var hit_pos := ray.get_collision_point()
 	var normal := ray.get_collision_normal()
 	var inside := hit_pos - normal * 0.01
@@ -311,6 +349,8 @@ func get_target_block() -> Vector3i:
 func get_place_pos() -> Vector3i:
 	if not ray.is_colliding():
 		return Vector3i(-9999, -9999, -9999)
+	if _collider_monster(ray.get_collider()) != null:
+		return Vector3i(-9999, -9999, -9999)
 	var hit_pos := ray.get_collision_point()
 	var normal := ray.get_collision_normal()
 	return Vector3i(
@@ -318,6 +358,46 @@ func get_place_pos() -> Vector3i:
 		floori((hit_pos + normal * 0.01).y),
 		floori((hit_pos + normal * 0.01).z)
 	)
+
+
+func _collider_monster(collider: Object) -> CozyMonster:
+	var n := collider as Node
+	while n != null:
+		if n is CozyMonster:
+			return n as CozyMonster
+		n = n.get_parent()
+	return null
+
+
+func get_target_monster() -> CozyMonster:
+	if not ray.is_colliding():
+		return null
+	var m := _collider_monster(ray.get_collider())
+	if m == null or not m.is_alive():
+		return null
+	var dist := camera.global_position.distance_to(ray.get_collision_point())
+	if dist > ATTACK_REACH + 0.05:
+		return null
+	return m
+
+
+func _try_attack() -> bool:
+	## Explicit attack only. Looking at a monster does nothing.
+	if _attack_cooldown > 0.0:
+		return false
+	var m := get_target_monster()
+	if m == null:
+		return false
+	if not m.take_damage(ATTACK_DAMAGE):
+		return false
+	_attack_cooldown = ATTACK_COOLDOWN
+	cancel_mining()
+	_play_sfx("res://assets/audio/impact/impactGeneric_light_000.ogg")
+	if m.is_alive():
+		GameState.toast("Hit! %d HP" % m.health)
+	else:
+		GameState.toast("Gloomlet defeated!")
+	return true
 
 
 func cancel_mining() -> void:
@@ -336,10 +416,7 @@ func mining_fraction() -> float:
 
 func _update_mining(delta: float) -> void:
 	if GameState.is_creative():
-		# Hold-to-repeat creative break (desktop).
-		if _break_held and Input.is_action_pressed("break_block"):
-			# Already broke on press; optional continuous creative break:
-			pass
+		# Creative breaks on explicit press via try_break(); no per-frame auto-break.
 		return
 	# Cancel if UI panels block interaction
 	if ui != null and ui.get("panels") != null:
@@ -347,7 +424,9 @@ func _update_mining(delta: float) -> void:
 		if panels != null and panels.has_method("any_open") and panels.any_open():
 			cancel_mining()
 			return
-	var holding := _break_held or _touch_mining or Input.is_action_pressed("break_block")
+	# Intentional hold only — never Input.is_action_pressed("break_block").
+	# Emulated LMB from look/move would otherwise mine while aiming.
+	var holding := _break_held or _touch_mining
 	if not holding:
 		if _mine_progress > 0.0:
 			cancel_mining()
@@ -397,6 +476,9 @@ func _finish_survival_break(t: Vector3i) -> void:
 
 func try_break() -> void:
 	## Instant Creative break (also used by tests). Survival uses timed mining.
+	## Attack takes priority when a living monster is in melee reach.
+	if _try_attack():
+		return
 	if GameState.is_survival():
 		_break_held = true
 		return
@@ -460,6 +542,13 @@ func prepare_for_mode(mode: int) -> void:
 		if parent:
 			var dresser := MeadowDresser.new()
 			dresser.dress(parent)
+			var old_mobs := parent.get_node_or_null("MonsterSpawner")
+			if old_mobs:
+				old_mobs.queue_free()
+			var spawner := MonsterSpawner.new()
+			spawner.name = "MonsterSpawner"
+			parent.add_child(spawner)
+			spawner.spawn_default()
 		reset_to_spawn()
 
 
@@ -495,6 +584,9 @@ func touch_jump() -> void:
 
 
 func touch_break() -> void:
+	## Explicit Break button / hold tick — never from look or UI chrome.
+	if _try_attack():
+		return
 	if GameState.is_creative():
 		try_break()
 	else:
