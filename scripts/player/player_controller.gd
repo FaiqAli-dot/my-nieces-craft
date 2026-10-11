@@ -67,6 +67,7 @@ func _ready() -> void:
 	avatar.name = "Avatar"
 	add_child(avatar)
 	set_third_person(bool(Settings.get_value("third_person")))
+	Settings.changed.connect(_on_setting_changed)
 	floor_snap_length = 0.2
 	safe_margin = 0.08
 	if SceneFlow.has_meadow_return:
@@ -159,8 +160,8 @@ func _input(event: InputEvent) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		look_yaw -= event.relative.x * MOUSE_SENS
-		look_pitch -= event.relative.y * MOUSE_SENS
+		look_yaw -= event.relative.x * MOUSE_SENS * Settings.look_speed()
+		look_pitch -= event.relative.y * MOUSE_SENS * Settings.look_speed()
 		look_pitch = clampf(look_pitch, deg_to_rad(-89), deg_to_rad(89))
 	if event.is_action_pressed("pause_menu"):
 		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -195,8 +196,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	# Look from touch (LookArea already applies its own multiplier).
 	if touch_look != Vector2.ZERO:
-		look_yaw -= touch_look.x * touch_look_sensitivity
-		look_pitch -= touch_look.y * touch_look_sensitivity
+		look_yaw -= touch_look.x * touch_look_sensitivity * Settings.look_speed()
+		look_pitch -= touch_look.y * touch_look_sensitivity * Settings.look_speed()
 		look_pitch = clampf(look_pitch, deg_to_rad(-89), deg_to_rad(89))
 		touch_look = Vector2.ZERO
 
@@ -264,6 +265,11 @@ func set_third_person(enabled: bool, persist: bool = false) -> void:
 	if persist:
 		Settings.set_value("third_person", enabled)
 	_update_camera_rig()
+
+
+func _on_setting_changed(key: String, value: Variant) -> void:
+	if key == "third_person" and bool(value) != third_person:
+		set_third_person(bool(value))
 
 
 func toggle_view() -> void:
@@ -345,6 +351,22 @@ func reset_to_spawn() -> void:
 	velocity = Vector3.ZERO
 	cancel_mining()
 	GameState.toast("Back to start!")
+
+
+## After loading blocks under a saved pose: lift out of anything solid, and
+## fall back to spawn if the pose left the world.
+func ensure_not_stuck() -> void:
+	var size := world.world_size_blocks()
+	var p := global_position
+	if p.x < 0.0 or p.z < 0.0 or p.x >= size.x or p.z >= size.z or p.y < -4.0 or p.y > size.y + 8:
+		global_position = world.spawn_position()
+		return
+	var bx := floori(p.x)
+	var bz := floori(p.z)
+	var feet := floori(p.y + 0.05)
+	if BlockDB.is_solid(world.get_block(bx, feet, bz)) or BlockDB.is_solid(world.get_block(bx, feet + 1, bz)):
+		global_position.y = float(world.surface_y(bx, bz) + 1) + 0.05
+	velocity = Vector3.ZERO
 
 
 func player_aabb() -> AABB:

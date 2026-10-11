@@ -58,6 +58,29 @@ static func circle_style(bg: Color, border: Color, border_w: int = 4, diameter: 
 	return s
 
 
+## Chunky menu button shared by the title screen and settings (with clear
+## hover / pressed / disabled / keyboard-focus states).
+static func menu_button(text: String, color: Color, min_size: Vector2, f: Font = null, font_size: int = 22) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = min_size
+	b.focus_mode = Control.FOCUS_ALL
+	b.add_theme_stylebox_override("normal", style_box(color, 18, Color(1, 1, 1, 0.9), 3))
+	b.add_theme_stylebox_override("hover", style_box(color.lightened(0.1), 18, Color(1, 1, 1, 1), 4))
+	b.add_theme_stylebox_override("pressed", style_box(color.darkened(0.12), 18, COL_INK, 4))
+	b.add_theme_stylebox_override("focus", style_box(Color(0, 0, 0, 0), 18, COL_INK, 3, false))
+	b.add_theme_stylebox_override("disabled", style_box(Color(0.82, 0.82, 0.80), 18, Color(1, 1, 1, 0.6), 3, false))
+	b.add_theme_color_override("font_color", COL_INK)
+	b.add_theme_color_override("font_hover_color", COL_INK)
+	b.add_theme_color_override("font_pressed_color", COL_INK)
+	b.add_theme_color_override("font_focus_color", COL_INK)
+	b.add_theme_color_override("font_disabled_color", COL_INK.lightened(0.45))
+	if f:
+		b.add_theme_font_override("font", f)
+	b.add_theme_font_size_override("font_size", font_size)
+	return b
+
+
 static func build_theme() -> Theme:
 	var t := Theme.new()
 	var f := font()

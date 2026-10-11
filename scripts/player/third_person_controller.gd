@@ -94,8 +94,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 			return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		yaw -= event.relative.x * MOUSE_SENS
-		pitch -= event.relative.y * MOUSE_SENS
+		yaw -= event.relative.x * MOUSE_SENS * Settings.look_speed()
+		pitch -= event.relative.y * MOUSE_SENS * Settings.look_speed()
 		pitch = clampf(pitch, PITCH_MIN, PITCH_MAX)
 	if event.is_action_pressed("pause_menu"):
 		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -115,8 +115,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if touch_look != Vector2.ZERO and not placement_locked:
-		yaw -= touch_look.x * TOUCH_LOOK_SENS
-		pitch -= touch_look.y * TOUCH_LOOK_SENS
+		yaw -= touch_look.x * TOUCH_LOOK_SENS * Settings.look_speed()
+		pitch -= touch_look.y * TOUCH_LOOK_SENS * Settings.look_speed()
 		pitch = clampf(pitch, PITCH_MIN, PITCH_MAX)
 		touch_look = Vector2.ZERO
 

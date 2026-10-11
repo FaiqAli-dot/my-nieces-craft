@@ -51,6 +51,7 @@ func _ready() -> void:
 	await _run_suite("res://tests/suites/tree_suite.gd")
 	await _run_suite("res://tests/suites/character_suite.gd")
 	await _run_suite("res://tests/suites/house_structure_suite.gd")
+	await _run_suite("res://tests/suites/title_suite.gd")
 	print("=== Results: %d passed, %d failed ===" % [passed, failed])
 	_cleanup_user_test_data()
 	get_tree().quit(1 if failed > 0 else 0)

@@ -34,6 +34,7 @@ var craft_top_btn: Button
 var menu_btn: Button
 var fly_btn: ActionButton
 var view_btn: Button
+var settings_panel: SettingsPanel
 var fly_up_btn: ActionButton
 var fly_down_btn: ActionButton
 var _fly_cluster: Control
@@ -72,6 +73,7 @@ func _ready() -> void:
 	_on_creative(GameState.is_creative())
 	_on_flight(GameState.flying)
 	_detect_touch()
+	Settings.changed.connect(_on_setting_changed)
 	get_viewport().size_changed.connect(_layout_hotbar)
 	get_viewport().size_changed.connect(_layout_fly_controls)
 	_layout_hotbar()
@@ -276,40 +278,54 @@ func _build_ui() -> void:
 	craft_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	craft_scroll.add_child(craft_list)
 
-	menu_panel = _make_panel(_root, "Menu", Vector2(380, 580))
+	menu_panel = _make_panel(_root, "Menu", Vector2(500, 500))
 	var menu_v: VBoxContainer = menu_panel.get_node("Margin/VBox")
 	# New World first — kids need an obvious way back to Creative / Survival.
 	var new_world_btn := Button.new()
 	new_world_btn.name = "NewWorldButton"
 	new_world_btn.text = "New World\nCreative or Survival"
 	new_world_btn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_theme_button(new_world_btn, Vector2(280, 72), COL_PINK)
+	_theme_button(new_world_btn, Vector2(440, 72), COL_PINK)
 	if _font:
 		new_world_btn.add_theme_font_size_override("font_size", 22)
 	new_world_btn.pressed.connect(request_new_world)
 	menu_v.add_child(new_world_btn)
-	for spec in [
-		["Save", save_game],
-		["Load", load_game],
-		["My House", go_to_house],
-		["Reset…", request_reset],
-		["Home", func(): if player: player.reset_to_spawn()],
-		["Close", toggle_menu],
-	]:
-		var b := Button.new()
-		b.text = spec[0]
-		_theme_button(b, Vector2(280, 52), COL_ACCENT if spec[0] != "My House" else COL_SKY)
-		b.pressed.connect(spec[1])
-		menu_v.add_child(b)
+	var menu_grid := GridContainer.new()
+	menu_grid.name = "MenuGrid"
+	menu_grid.columns = 2
+	menu_grid.add_theme_constant_override("h_separation", 12)
+	menu_grid.add_theme_constant_override("v_separation", 10)
+	menu_v.add_child(menu_grid)
 	view_btn = Button.new()
 	view_btn.name = "ViewButton"
-	_theme_button(view_btn, Vector2(280, 52), COL_GREEN)
+	_theme_button(view_btn, Vector2(214, 52), COL_GREEN)
 	view_btn.pressed.connect(func():
 		if player:
 			player.toggle_view()
 		_refresh_view_btn())
-	menu_v.add_child(view_btn)
-	menu_v.move_child(view_btn, menu_v.get_child_count() - 2)
+	for spec in [
+		["Save", save_game, COL_ACCENT],
+		["Load", load_game, COL_ACCENT],
+		["My House", go_to_house, COL_SKY],
+		["Home", func(): if player: player.reset_to_spawn(), COL_ACCENT],
+		["Settings", open_settings, COL_ACCENT],
+		[view_btn, null, null],
+		["Reset…", request_reset, COL_ACCENT],
+		["Title Screen", go_to_title, COL_ACCENT],
+	]:
+		if spec[0] is Button:
+			menu_grid.add_child(spec[0])
+			continue
+		var b := Button.new()
+		b.text = spec[0]
+		_theme_button(b, Vector2(214, 52), spec[2])
+		b.pressed.connect(spec[1])
+		menu_grid.add_child(b)
+	var close_btn := Button.new()
+	close_btn.text = "Close"
+	_theme_button(close_btn, Vector2(440, 52), COL_GREEN)
+	close_btn.pressed.connect(toggle_menu)
+	menu_v.add_child(close_btn)
 	_refresh_view_btn()
 
 	confirm_panel = _make_panel(_root, "Reset world?", Vector2(380, 220))
@@ -336,6 +352,15 @@ func _build_ui() -> void:
 	panels.register("craft", craft_panel)
 	panels.register("menu", menu_panel)
 	panels.register("confirm", confirm_panel)
+	var settings_center := CenterContainer.new()
+	settings_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	settings_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(settings_center)
+	settings_panel = SettingsPanel.new()
+	settings_panel.visible = false
+	settings_panel.closed.connect(func(): panels.close("settings"))
+	settings_center.add_child(settings_panel)
+	panels.register("settings", settings_panel)
 	_build_fly_controls()
 	_build_mining_bar()
 	_build_mode_select()
@@ -434,9 +459,16 @@ func _make_panel(parent: Control, title: String, size: Vector2) -> PanelContaine
 	return panel
 
 
+func _on_setting_changed(key: String, _value: Variant) -> void:
+	if key == "touch_controls":
+		_detect_touch()
+	elif key == "third_person":
+		_refresh_view_btn()
+
+
 func _detect_touch() -> void:
 	var mobile := OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios")
-	var forced := GameState.touch_controls_forced or OS.get_environment("COZY_FORCE_TOUCH") == "1"
+	var forced := GameState.touch_controls_forced or Settings.touch_forced() or OS.get_environment("COZY_FORCE_TOUCH") == "1"
 	touch_layer.visible = mobile or forced
 	# Refresh aliases after TouchControls builds children.
 	if touch_controls:
@@ -1104,6 +1136,9 @@ func _choose_mode(mode: int) -> void:
 	else:
 		GameState.set_game_mode(mode, true)
 	GameState.toast("Let's play %s!" % GameState.mode_label())
+	var scene := get_tree().current_scene
+	if scene and scene.has_method("save_now"):
+		scene.save_now()
 	_restore_play_mouse()
 
 
@@ -1119,10 +1154,24 @@ func _on_mining_progress(progress: float) -> void:
 
 
 func save_game() -> void:
-	if player and SaveGame.save_world(player.world, player.inventory):
-		GameState.toast("Saved!")
-	else:
-		GameState.toast("Save failed")
+	var scene := get_tree().current_scene
+	var ok := false
+	if scene and scene.has_method("save_now") and scene.autosave_enabled:
+		ok = scene.save_now()
+	elif player:
+		ok = SaveGame.save_world(player.world, player.inventory)
+	GameState.toast("Saved!" if ok else "Save failed")
+
+
+func open_settings() -> void:
+	panels.open("settings")
+	settings_panel.open()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func go_to_title() -> void:
+	panels.close_all()
+	SceneFlow.go_to_title()
 
 
 func load_game() -> void:

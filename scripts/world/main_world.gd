@@ -6,6 +6,10 @@ extends Node3D
 @onready var ui: GameUi = $GameUI
 @onready var showcase: AssetShowcase = $Showcase
 
+const AUTOSAVE_SEC := 45.0
+var autosave_enabled := false
+var _autosave_timer: Timer
+
 func _ready() -> void:
 	_setup_environment()
 	var dresser := MeadowDresser.new()
@@ -65,7 +69,9 @@ func _ready() -> void:
 		or OS.get_environment("COZY_S2_DEMO") == "1"
 		or OS.get_environment("COZY_SKIP_MODE_SELECT") == "1"
 	)
-	if not skip_mode_ui and not SaveGame.save_exists():
+	if SceneFlow.session_active:
+		_start_session(SceneFlow.take_intent())
+	elif not skip_mode_ui and not SaveGame.save_exists():
 		call_deferred("_offer_new_world")
 	if OS.get_environment("COZY_SMOKE") == "1":
 		await get_tree().create_timer(1.5).timeout
@@ -75,6 +81,70 @@ func _ready() -> void:
 func _offer_new_world() -> void:
 	if ui and ui.has_method("show_mode_select"):
 		ui.show_mode_select()
+
+
+## Title-screen sessions own the real save: load or create it, then autosave.
+func _start_session(intent: Dictionary) -> void:
+	var kind := str(intent.get("kind", "resume"))
+	if kind == "new":
+		player.prepare_for_mode(int(intent.get("mode", GameState.Mode.CREATIVE)))
+		autosave_enabled = true
+		save_now()
+		GameState.toast("Let's play %s!" % GameState.mode_label())
+	elif SaveGame.load_world(world, player.inventory):
+		autosave_enabled = true
+		if kind == "continue":
+			_restore_saved_pose()
+		player.ensure_not_stuck()
+	elif SaveGame.save_exists():
+		# Damaged save: keep a backup, never overwrite it silently.
+		var backup := SaveGame.quarantine()
+		GameState.toast("%s — a backup was kept. Pick a mode for a new world!" % SaveGame.last_error)
+		push_warning("Moved unreadable save to " + backup)
+		autosave_enabled = true
+		call_deferred("_offer_new_world")
+	else:
+		autosave_enabled = true
+		call_deferred("_offer_new_world")
+	if ui:
+		ui.call_deferred("refresh_hotbar")
+	_autosave_timer = Timer.new()
+	_autosave_timer.name = "Autosave"
+	_autosave_timer.wait_time = AUTOSAVE_SEC
+	_autosave_timer.timeout.connect(save_now)
+	add_child(_autosave_timer)
+	_autosave_timer.start()
+	SceneFlow.transition_started.connect(_on_leaving)
+
+
+func _restore_saved_pose() -> void:
+	var p := SaveGame.saved_player_state()
+	var pos = p.get("pos", [])
+	if typeof(pos) == TYPE_ARRAY and pos.size() == 3:
+		player.global_position = Vector3(float(pos[0]), float(pos[1]), float(pos[2]))
+		player.look_yaw = float(p.get("yaw", 0.0))
+		player.look_pitch = clampf(float(p.get("pitch", 0.0)), -1.5, 1.5)
+
+
+func player_state() -> Dictionary:
+	var p := player.global_position
+	return {"pos": [p.x, p.y, p.z], "yaw": player.look_yaw, "pitch": player.look_pitch}
+
+
+## Writes the session save. No-op outside title-screen sessions.
+func save_now() -> bool:
+	if not autosave_enabled:
+		return false
+	return SaveGame.save_world(world, player.inventory, player_state())
+
+
+func _on_leaving(_destination: String) -> void:
+	save_now()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		save_now()
 
 
 func _setup_environment() -> void:

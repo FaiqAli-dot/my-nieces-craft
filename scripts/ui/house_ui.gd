@@ -68,8 +68,14 @@ func _ready() -> void:
 	panels.closed.connect(_on_panel_closed)
 	GameState.message.connect(show_toast)
 	_detect_touch()
+	Settings.changed.connect(_on_setting_changed)
 	get_viewport().size_changed.connect(_layout_touch)
 	call_deferred("_layout_touch")
+
+
+func _on_setting_changed(key: String, _value: Variant) -> void:
+	if key == "touch_controls":
+		_detect_touch()
 
 
 func bind(w: Node) -> void:
@@ -521,7 +527,7 @@ func _panel(parent: Control, title: String, size: Vector2) -> PanelContainer:
 
 func _detect_touch() -> void:
 	var mobile := OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios")
-	var forced := GameState.touch_controls_forced or OS.get_environment("COZY_FORCE_TOUCH") == "1"
+	var forced := GameState.touch_controls_forced or Settings.touch_forced() or OS.get_environment("COZY_FORCE_TOUCH") == "1"
 	touch_layer.visible = mobile or forced
 
 
